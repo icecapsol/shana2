@@ -1,0 +1,590 @@
+#!/usr/bin/env python
+"""
+shana2 - an over engineered, phenny semi-compatible Python 3 IRC bot
+Copyright 2013, icecapsol@gmail.com
+
+Large chunks of code derived from phenny
+
+Copyright 2008, Sean B. Palmer, inamidst.com
+Licensed under the Eiffel Forum License 2.
+http://inamidst.com/phenny/
+"""
+
+import sys, os, re, subprocess, time, socket, asyncore, asynchat, imp, threading, datetime, traceback, resource
+import yaml
+from multiprocessing import Process, Pipe, Queue
+
+class Communicator():
+	class Listener(asynchat.async_chat):
+		def __init__(self, box, data):
+			asynchat.async_chat.__init__(self)
+			self.set_terminator(b'\n')
+			self.buffer = b''
+			self.name = data['name']
+			self.outbox = box
+			self.host = data['host']
+			self.port = data['port']
+	
+		def send_letter(self, to, subject, body):
+			l = Letter(to, subject, body, "self.communicator")
+			self.outbox.put(l)
+	
+		def initiate_connect(self): 
+			self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
+			#print("Listener: Connecting to %s %s" % (self.host, self.port))
+			self.connect((self.host, int(self.port)))
+		def handle_connect(self): 
+			self.send_letter("module.irc.login", "CONNECT", {'message': "new connection"})
+		def handle_close(self): 
+			self.close()
+		def handle_error(self):
+			cls, value = sys.exc_info()[:2]
+			print('\n'+str(value))
+			if cls == socket.error or cls == socket.gaierror:
+				self.handle_close()
+		def collect_incoming_data(self, data): 
+			self.buffer += data
+		def found_terminator(self):
+			line = self.buffer
+			if line.decode().endswith('\r'): 
+				line = line[:-1]
+			self.buffer = b''
+			self.send_letter("self.parser", "NEW LINE", {'line': line.decode()})
+		def run(self):
+			self.initiate_connect()
+			try: asyncore.loop()
+			except KeyboardInterrupt: 
+				sys.exit()
+	class Speaker():
+		def __init__(self, inbox, comm):
+			self.inbox = inbox
+			self.comm = comm
+		
+		def run(self):
+			while True:
+				letter = self.inbox.recv()
+				if letter.subject =="NEW IRC OUTPUT":
+					self.comm.push(letter.body['message'].encode('utf-8'))
+					#print(letter.body['message'].encode('utf-8'))
+					time.sleep(0.1)
+	
+	def __init__(self, inbox, outbox, config):
+		self.listener = Communicator.Listener(outbox, config)
+		self.speaker = Communicator.Speaker(inbox, self.listener)
+	
+	def run(self):
+		t = threading.Thread(target=self.listener.run, args=())
+		t.start()
+		self.speaker.run()
+
+class Parser():
+	def __init__(self, inbox, outbox, config):
+		self.config = config
+		self.inbox = inbox
+		self.outbox = outbox
+		self.source = re.compile(r'([^!]*)!?([^@]*)@?(.*)')
+		
+	def send(self, to, subject, body):
+		l = Letter(to, subject, body, "self.parser")
+		self.outbox.put(l)
+		
+	def run(self):
+		while True:
+			l = self.inbox.recv()
+			if l.subject == "NEW LINE":
+				line = l.body['line']
+			else: continue
+			#print(line)
+			
+			if line.startswith(':'): 
+				source, line = line[1:].split(' ', 1)
+			else: source = None
+
+			if ' :' in line: 
+				argstr, text = line.split(' :', 1)
+			else: argstr, text = line, ''
+			args = argstr.split()
+			
+			data = Data()
+			match = self.source.match(source or '')
+			data.nick, data.user, data.host = match.groups()
+
+			if len(args) > 1: 
+				target = args[1]
+			else: target = None
+			data.sender = {self.config['nick']: data.nick, None: None}.get(target, target)
+			data.args = tuple([text] + args)
+			
+			self.send("self.generator", "NEW IRC DATA", {'data': data})
+
+class Data():
+	def __init__(self):
+		pass
+
+class Generator():
+	def __init__(self, inbox, outbox, config):
+		self.config = config
+		self.inbox = inbox
+		self.outbox = outbox
+	
+	def send(self, to, subject, body):
+		l = Letter(to, subject, body, "self.generator")
+		self.outbox.put(l)
+	
+	def run(self):
+		while True:
+			l = self.inbox.recv()
+			if l.subject == "NEW IRC DATA":
+				data = l.body['data']
+			else: continue
+			event = Event(data.args[0], data, data.args[0], data.args[1], data.args[2:], self.config)
+			self.send("self.launcher", "NEW EVENT", {'event': event})
+
+class Event():
+	def __init__(self, text, data, bytes, event, args, config):
+		#s = str.__new__(cls, text)
+		self.sender = data.sender
+		self.nick = data.nick
+		self.host = data.host
+		self.user = data.user
+		self.event = event
+		self.bytes = bytes
+		self.match = None
+		self.search = None
+		self.searches = None
+		self.group = None #match.group
+		self.groups = None #match.groups
+		self.args = args
+		self.admin = data.nick in config['groups']['admin']
+		self.owner = data.nick == config['groups']['sysop']
+		if data.nick.lower() in config['passwd']:
+			self.username = data.nick.lower()
+		else:
+			self.username = 'nobody'
+		self.ugroups = config['passwd'].get(self.username, ['nobody']) # 0 groups, 1 password, 2 home
+
+
+class Launcher():
+	def __init__(self, config):
+		self.inbox, self.box_r = Pipe()
+		self.outbox = Queue(16386) # PO's inbox
+		self.config = config
+		self.load_modules()
+		self.startup()
+		self.run()
+	
+	def load_module(self, fn):
+		print("LAUNCHER: Loading module %s" % fn.rpartition(".")[0])
+		mod = Module(fn, dict(list(self.config["Modules"].items()) + list(self.config["Global"].items()) + list(self.config.get("Module.%s" % fn.rpartition(".")[0], {}).items())))
+		for m in self.modules:
+			if m.name == mod.name:
+				self.modules.remove(m)
+		self.modules.append(mod)
+
+	def load_modules(self):
+		self.modules = []
+		for fn in [fn for fn in os.listdir("modules") if os.path.isfile("modules/"+fn) and not fn.startswith("_") and fn.endswith(".py")]:
+			try: self.load_module(fn)
+			except:
+				trace = traceback.format_exc()
+				print(trace)
+	
+	def launch_module(self, mod, func, event=None):
+		q = Pipe()
+		p = Process(target=mod.start, args=(event, func, (q[0], self.outbox), mod.name))
+		p.start()
+		self.send("self.post office", "Add", {'name': "module.%s.%s" % (mod.name, func.name), "queue": q[1]})
+		print("LAUNCHER: Launching module %s.%s" % (mod.name, func.name))
+	
+	def startup(self):
+		# Post office
+		print("LAUNCHER: Starting post office")
+		self.pobox = Postoffice(self.outbox, dict(list(self.config["Post Office"].items()) + list(self.config["Global"].items())))
+		p = Process(target=self.pobox.run, args=())
+		p.start()
+		self.send("self.post office", "Add", {'name': "self.launcher."+self.config["Launcher"]["version"], "queue": self.box_r})
+		
+		# generator
+		print("LAUNCHER: Starting generator")
+		gbox = Pipe()
+		self.generator = Generator(gbox[0], self.outbox, dict(list(self.config['Generator'].items()) + list(self.config["Global"].items())))
+		p = Process(target=self.generator.run, args=())
+		p.start()
+		self.send("self.post office", "Add", {'name': "self.generator."+self.config["Generator"]["version"], "queue": gbox[1]})
+		
+		# parser
+		print("LAUNCHER: Starting parser")
+		pbox = Pipe()
+		self.parser = Parser(pbox[0], self.outbox, dict(list(self.config['Parser'].items()) + list(self.config["Global"].items())))
+		p = Process(target=self.parser.run, args=())
+		p.start()
+		self.send("self.post office", "Add", {'name': "self.parser."+self.config["Parser"]["version"], "queue": pbox[1]})
+		
+		# listener
+		print("LAUNCHER: Starting communicator")
+		lbox = Pipe()
+		self.communicator = Communicator(lbox[0], self.outbox, dict(list(self.config['Communicator'].items()) + list(self.config["Global"].items())))
+		p = Process(target=self.communicator.run, args=())
+		p.start()
+		self.send("self.post office", "Add", {'name': "self.communicator."+self.config["Communicator"]["version"], "queue": lbox[1]})
+		
+		for m in self.modules:
+			for func in m.functions:
+				if func.startup:
+					print("LAUNCHER: Launching startup module %s." % func.name)
+					self.launch_module(m, func, None) 
+
+	def send(self, to, subject, body):
+		l = Letter(to, subject, body, "self.launcher")
+		self.outbox.put(l)
+	
+	def run(self):
+		while True:
+			letter = self.inbox.recv()
+			if letter.subject == "NEW EVENT":
+				event = letter.body['event']
+				launch = []
+				for m in self.modules:
+					for func in m.trigger(event):
+						self.launch_module(m, func, event)
+			elif letter.subject == "RELOAD MODULE":
+				for name in letter.body['names']:
+					if os.path.isfile("modules/"+name+".py"):  # RFI
+						try:
+							self.load_module(name+".py")
+							self.send("self.communicator", "NEW IRC OUTPUT", {'message': "PRIVMSG %s :%s: modules.%s (version: %s)\r\n" % (letter.body['sender'], letter.body['nick'], name+".py", datetime.datetime.now())})
+						except Exception as e:
+							self.send("self.communicator", "NEW IRC OUTPUT", {'message': "PRIVMSG %s :%s: Error loading module %s: %s\r\n" % (letter.body['sender'], letter.body['nick'], name+".py", e)})
+					else:
+						self.send("self.communicator", "NEW IRC OUTPUT", {'message': "PRIVMSG %s :%s: Error loading module %s: file doesn't exist\r\n" % (letter.body['sender'], letter.body['nick'], name+".py")})
+			elif letter.subject == "LAUNCH MODULE":
+				full_name = letter.body['name'].split(".")[1:]
+				for mod in self.modules:
+					if mod.name == full_name[0]:
+						for func in mod.functions:
+							if func.name == full_name:
+								self.launch_module(mod, func)
+			elif letter.subject == "LIST MODULES":
+				mods = {}
+				for mod in self.modules:
+					mods[mod.name] = [func.name for func in mod.functions]
+				self.send(letter.sender, "MODULES LIST", {'list': mods})
+class Letter:
+	def __init__(self,to, subject, body, sender=None):
+		self.sender = sender
+		self.to = to
+		self.to_f = to.split('.')
+		self.subject = subject
+		self.body = body
+	def match(self, test):
+		if not self.sender:
+			return False
+		return test.match(self.sender)
+
+class Postoffice():
+	def __init__(self, queue, config):
+		self.config = config
+		self.inbox = queue
+		self.boxes = {}
+	
+	def mkbox(self, box_name, queue):
+		name, box = self.best_match(box_name.split("."), self.boxes, 0)
+		if name:
+			print("POST OFFICE: Error adding outbox for %s. Name exists" % name)
+			return False
+		self.boxes[box_name] = queue
+		return True
+	
+	def rmbox(self, box_name):
+		name, box = self.best_match(box_name.split("."), self.boxes, 0)
+		if not name:
+			print("POST OFFICE: No outbox for %s." % name)
+			return False
+		try: box.send(Letter(name, "LAST LETTER", {}, "self.post office"))
+		except: pass
+		del self.boxes[name]
+		return True
+
+	def process(self, letter):
+		if letter.subject == "Add":
+			self.mkbox(letter.body['name'], letter.body["queue"])
+		elif letter.subject == "Remove":
+			self.rmbox(letter.body['name'])
+		elif letter.subject == "LIST BOXES":
+			try: self.boxes[letter.sender].send(Letter(letter.sender, "LIST BOXES", {'list': list(self.boxes.keys())}, "self.post office"))
+			except: pass
+		elif letter.subject == "TEST BOXES":
+			name, box = self.best_match(letter.body['query'], self.boxes, 0)
+			try: self.boxes[letter.sender].send(Letter(letter.sender, "TEST BOXES", {'match': name}, "self.post office"))
+			except: pass
+		elif letter.subject == "DEL BOX":
+			try: self.boxes[letter.sender].send(Letter(letter.sender, "DEL BOX", {'name': letter.body['name'], 'result': self.rmbox(letter.body['name'])}, "self.post office"))
+			except: pass
+	
+	def best_match(self, name, dlist, level):
+		candidates = dict([(n, i) for n, i in dlist.items() if len(n.split(".")) >= level+1 and n.split(".")[level] == name[level]])
+		if level == len(name)-1:
+			if len(candidates) > 0:
+				return (tuple(candidates.keys())[0], candidates[tuple(candidates.keys())[0]]) # TODO: match the highest version
+			else:
+				return (None, None)
+		elif level < len(name)-1 and len(candidates) > 0:
+			pick = self.best_match(name, candidates, level+1)
+			return pick
+		else:
+			return (None, None)
+	
+	def run(self):
+		while True:
+			letter = self.inbox.get()
+			
+			if letter.to == "self.post office":
+				self.process(letter)
+				continue
+			name, box = self.best_match(letter.to_f, self.boxes, 0)
+			if name: box.send(letter)
+			else: # return to sender
+				name, box = self.best_match(letter.sender, self.boxes, 0)
+				if name:
+					letter.body['RTS'] = letter.subject
+					letter.subject = "RETURN TO SENDER"
+					box.send(letter)
+
+class ACL():
+	def __init__(self, module):
+		self.owner = getattr(module, 'owner', 'nobody')
+		self.group = getattr(module, 'group', 'nobody')
+		if self.owner == 'nobody' or self.group == 'nobody':
+			self.owner, self.group = ('nobody', 'nobody')
+			self.mode = ((True, True), (True, True), (True, True))
+		else:
+			self.mode = getattr(module, 'mode', ((True, True), (True, False), (True, False))) # execute, modify
+		self.funcs = {}
+
+class Module():
+	class Function():
+		def __init__(self, name, func, config):
+			def sub(pattern, self=self):
+				# These replacements have significant order
+				pattern = pattern.replace('$nickname', config['name'])
+				return pattern.replace('$nick', r'%s[,:] +' % config['name'])
+			self.name = name
+			self.func = func
+			self.rule = getattr(self.func, 'rule', [])
+			self.commands = getattr(self.func, 'commands', [])
+			self.daemon = getattr(self.func, 'daemon', False)
+			self.startup = getattr(self.func, 'startup', False)
+			if hasattr(self.func, "event"):
+				if isinstance(self.func.event, str):
+					self.event = [self.func.event,]
+				else:
+					self.event = self.func.event
+			else:
+				self.event = getattr(self.func, 'event', ['PRIVMSG'])
+			#print(self.event)
+			if self.rule:
+				if isinstance(self.rule, str): 
+					pattern = sub(self.rule)
+					regexp = re.compile(pattern)
+					self.rule = [regexp]
+
+				if isinstance(func.rule, tuple): 
+					# 1) e.g. ('$nick', '(.*)')
+					if len(self.rule) == 2 and isinstance(self.rule[0], str): 
+						prefix, pattern = self.rule
+						prefix = sub(prefix)
+						regexp = re.compile(prefix + pattern)
+						self.rule = [regexp]
+
+					# 2) e.g. (['p', 'q'], '(.*)')
+					elif len(self.rule) == 2 and isinstance(self.rule[0], list): 
+						prefix = config['prefix']
+						commands, pattern = self.rule
+						self.rule = []
+						for command in commands: 
+							command = r'(%s)(?: +(?:%s))?' % (command, pattern)
+							regexp = re.compile(prefix + command)
+							self.rule.append(regexp)
+
+					# 3) e.g. ('$nick', ['p', 'q'], '(.*)')
+					elif len(self.rule) == 3: 
+						prefix, commands, pattern = self.rule
+						prefix = sub(prefix)
+						self.rule = []
+						for command in commands: 
+							command = r'(%s) +' % command
+							regexp = re.compile(prefix + command + pattern)
+							self.rule.append(regexp)
+
+			if self.commands:
+				c = []
+				for command in self.commands: 
+					template = r'^%s(%s)(?: +(.*))?$'
+					pattern = template % (config['prefix'], command)
+					regexp = re.compile(pattern)
+					c.append(regexp)
+				self.commands = c
+	class Bot():
+		def __init__(self, mail, input, name, conf):
+			self.inbox = mail[0]
+			self.outbox = mail[1]
+			self.letters = []
+			self.name = '.'.join(name)
+			self.input = input
+			self.conf = conf
+		def write(self, args, text=None):
+			def safe(input): 
+				input = input.replace('\n', '')
+				input = input.replace('\r', '')
+				return input
+			#try: 
+			args = [safe(arg) for arg in args]
+			if text is not None: 
+				text = safe(text)
+				self.send("self.communicator", "NEW IRC OUTPUT", {'message': ' '.join(args) + ' :' + text + '\r\n'})
+			else: self.send("self.communicator", "NEW IRC OUTPUT", {'message': ' '.join(args) + '\r\n'})
+			#except Exception as e:
+				#print(e)
+		def msg(self, recipient, text):
+			self.write(('PRIVMSG', recipient), text)
+		def say(self, text):
+			self.msg(self.input.sender, text)
+		def reply(self, text):
+			self.msg(self.input.sender, "%s: %s" % (self.input.nick, text))
+		def call(self, module_name, args):
+			d = Data()
+			self.send("self.generator", "NEW IRC DATA", {'data': d})
+		def send(self, to, subject, body):
+			l = Letter(to, subject, body, "module."+self.name)
+			self.outbox.put(l)
+		def recv(self, subject=None, sender=None, to=None, block=True): #TODO accept regexes
+			while self.inbox.poll():
+				self.letters.append(self.inbox.recv())
+			
+			if subject or sender or to:
+				while True:
+					if subject:
+						if isinstance(subject, list):
+							matches = [mletter for mletter in self.letters if mletter.subject in subject]
+						else:
+							matches = [mletter for mletter in self.letters if mletter.subject == subject]
+						if len(matches) == 0 and block: continue
+						elif len(matches) == 0:
+							self.letters.remove(matches[0])
+							return matches[0]
+						else: return None
+					elif sender:
+						if isinstance(sender, list):
+							matches = [mletter for mletter in self.letters if mletter.sender in sender]
+						else:
+							matches = [mletter for mletter in self.letters if mletter.sender == sender]
+						if len(matches) == 0 and block: continue
+						elif len(matches) == 0:
+							self.letters.remove(matches[0])
+							return matches[0]
+						else: return None
+					elif to:
+						if isinstance(to, list):
+							matches = [mletter for mletter in self.letters if mletter.to in to]
+						else:
+							matches = [mletter for mletter in self.letters if mletter.to == to]
+						if len(matches) == 0 and block: continue
+						elif len(matches) == 0:
+							self.letters.remove(matches[0])
+							return matches[0]
+						else: return None
+				
+			else:
+				if len(self.letters) > 0:
+					return self.letters.pop(0)
+				elif block and len(self.letters) == 0:
+					return self.inbox.recv()
+				else:
+					return None
+				
+		def discard(self, timeout=1):
+			if self.inbox.poll(timeout):
+				l = self.inbox.recv()
+				return 1
+			else:
+				return 0
+		
+	def __init__(self, name, config):
+		self.config = config
+		module = getattr(__import__('modules.' + name.rpartition(".")[0]), name.rpartition(".")[0])
+		imp.reload(module)
+		self.name = name.rpartition(".")[0]
+		self.functions = []
+		self.acl = ACL(module)
+		for name, func in vars(module).items():
+			if not str(type(func)) == "<class 'function'>": continue
+			self.functions.append(Module.Function(name, func, config))
+			self.acl.funcs[name] = {'owner': getattr(func, 'owner', 'nobody'), 
+							    'group': getattr(func, 'group', 'nobody'), 
+							    'priority': getattr(func, 'priority', 'low'), 
+							    'mode': getattr(module, 'mode', (True, True, True))}
+	
+	def send(self, to, subject, body):
+		l = Letter(to, "module."+self.name, subject, body)
+		self.outbox.put(l)
+	
+	def trigger(self, event):
+		launch = []
+		for func in self.functions:
+			if event.event in func.event and ([True for regexp in func.rule if regexp.match(event.bytes)] or [True for regexp in func.rule if regexp.search(event.bytes)] or [True for regexp in func.commands if regexp.match(event.bytes)]) and self.approve(func, event):
+				launch.append(func)
+		return launch
+	def approve(self, func, event):
+		acl = self.acl.funcs[func.name]
+		if acl['mode'][2] or (acl['group'] in event.ugroups and acl['mode'][1]) or (event.username == acl['owner'] and acl['mode'][0]):
+			return True
+
+	def start(self, input, func, mail, mod_name):
+		bot = Module.Bot(mail, input, [self.name, func.name], self.config)
+		if input:
+			if func.commands:
+				for command in func.commands:
+					match = command.match(input.bytes)
+					if match:
+						input.match = match
+						input.group = match.group
+						input.groups = match.groups
+			elif func.rule:
+				for rule in func.rule:
+					match = rule.match(input.bytes)
+					if match:
+						input.match = match
+						input.group = match.group
+						input.groups = match.groups
+					search = rule.search(input.bytes)
+					if search:
+						input.search = search
+						input.searches = rule.findall(input.bytes)
+			else:
+				input.match = None
+				input.group = None
+				input.groups = None
+		
+
+		#for lim, val in func.limits.items():
+			#resource.setrlimit(lim, val)
+		try: func.func(bot, input)
+		except:
+			trace = traceback.format_exc()
+			print(trace)
+			lines = list(reversed(trace.splitlines()))
+			report = [lines[0].strip()]
+			for line in lines: 
+				line = line.strip()
+				if line.startswith('File "/'): 
+					report.append(line[0].lower() + line[1:])
+					break
+			else: report.append('source unknown')
+			bot.say(report[0] + ' (' + report[1] + ')')
+		bot.send("self.post office", "Remove", {'name': "module.%s.%s" % (mod_name, func.name)})
+
+conf_file = open("shana2.conf", "r")
+config = yaml.load(conf_file)
+conf_file.close()
+
+Launcher(config)
