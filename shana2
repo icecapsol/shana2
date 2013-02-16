@@ -169,6 +169,7 @@ class Launcher():
 		self.inbox, self.box_r = Pipe()
 		self.outbox = Queue(16386) # PO's inbox
 		self.config = config
+		self.running = {}
 		self.load_modules()
 		self.startup()
 		self.run()
@@ -195,6 +196,7 @@ class Launcher():
 		p.start()
 		self.send("self.post office", "Add", {'name': "module.%s.%s" % (mod.name, func.name), "queue": q[1]})
 		print("LAUNCHER: Launching module %s.%s" % (mod.name, func.name))
+		return p
 	
 	def startup(self):
 		# Post office
@@ -232,7 +234,7 @@ class Launcher():
 			for func in m.functions:
 				if func.startup:
 					print("LAUNCHER: Launching startup module %s." % func.name)
-					self.launch_module(m, func, None) 
+					self.launch_module(m, func, None)
 
 	def send(self, to, subject, body):
 		l = Letter(to, subject, body, "self.launcher")
@@ -244,9 +246,45 @@ class Launcher():
 			if letter.subject == "NEW EVENT":
 				event = letter.body['event']
 				launch = []
+				remove = []
+				for tag, proclist in self.running.items():
+					for proc in proclist:
+						if not proc['proc'].is_alive():
+							proc['proc'].join(1)
+							proclist.remove(proc)
+					if len(proclist) == 0:
+						remove.append(tag)
+				for tag in remove:
+					del self.running[tag]
 				for m in self.modules:
 					for func in m.trigger(event):
-						self.launch_module(m, func, event)
+						if func.service and "module.%s.%s" % (m.name, func.name) in self.running.keys():
+							self.send("module.%s.%s" % (m.name, func.name), "NEW EVENT", {'event': event, 'modname': m.name, 'funcname': func.name, 'service': True})
+						else:
+							p = self.launch_module(m, func, event)
+							self.running.setdefault("module.%s.%s" % (m.name, func.name), [])
+							self.running["module.%s.%s" % (m.name, func.name)].append({'pid': p.pid, 'proc': p})
+			elif letter.subject == "WAKE":
+				try: mclass, mname, fname = letter.body['letter'].to_f[:3]
+				except Exception as e:
+					print(e)
+					continue
+				if not mclass == "module":
+					self.send("self.post office", "WAKE FAIL", {'letter': letter.body['letter']})
+					continue
+				for mod in self.modules:
+					if mod.name == mname:
+						for func in mod.functions:
+							if func.name == fname:
+								if not func.wake_on_letter:
+									self.send("self.post office", "WAKE FAIL", {'letter': letter.body['letter']})
+									break
+								else:
+									p = self.launch_module(mod, func)
+									self.running.setdefault("module.%s.%s" % (mod.name, func.name), [])
+									self.running["module.%s.%s" % (mod.name, func.name)].append({'pid': p.pid, 'proc': p})
+									self.outbox.put(Letter(letter.body['letter'].to, letter.body['letter'].subject, letter.body["letter"].body, letter.body["letter"].sender))
+
 			elif letter.subject == "RELOAD MODULE":
 				for name in letter.body['names']:
 					if os.path.isfile("modules/"+name+".py"):  # RFI
@@ -320,6 +358,13 @@ class Postoffice():
 		elif letter.subject == "DEL BOX":
 			try: self.boxes[letter.sender].send(Letter(letter.sender, "DEL BOX", {'name': letter.body['name'], 'result': self.rmbox(letter.body['name'])}, "self.post office"))
 			except: pass
+		elif letter.subject == "WAKE FAIL":
+			name, box = self.best_match(letter.to_f, self.boxes, 0)
+			if name:
+				l = letter.body['letter']
+				l.body['RTS'] = l.subject
+				l.subject = "RETURN TO SENDER"
+				box.send(l)
 	
 	def best_match(self, name, dlist, level):
 		candidates = dict([(n, i) for n, i in dlist.items() if len(n.split(".")) >= level+1 and n.split(".")[level] == name[level]])
@@ -343,12 +388,9 @@ class Postoffice():
 				continue
 			name, box = self.best_match(letter.to_f, self.boxes, 0)
 			if name: box.send(letter)
-			else: # return to sender
-				name, box = self.best_match(letter.sender, self.boxes, 0)
-				if name:
-					letter.body['RTS'] = letter.subject
-					letter.subject = "RETURN TO SENDER"
-					box.send(letter)
+			else: # check if the module will wake up
+				name, box = self.best_match(["self", "launcher"], self.boxes, 0)
+				box.send(Letter("self.launcher", "WAKE", {"letter": letter}))
 
 class ACL():
 	def __init__(self, module):
@@ -374,6 +416,8 @@ class Module():
 			self.commands = getattr(self.func, 'commands', [])
 			self.daemon = getattr(self.func, 'daemon', False)
 			self.startup = getattr(self.func, 'startup', False)
+			self.service = getattr(self.func, 'service', False)
+			self.wake_on_letter = getattr(self.func, 'wake_on_letter', False)
 			if hasattr(self.func, "event"):
 				if isinstance(self.func.event, str):
 					self.event = [self.func.event,]
@@ -460,16 +504,16 @@ class Module():
 		def recv(self, subject=None, sender=None, to=None, block=True): #TODO accept regexes
 			while self.inbox.poll():
 				self.letters.append(self.inbox.recv())
-			
 			if subject or sender or to:
 				while True:
+					if len(self.letters) == 0: self.letters.append(self.inbox.recv())
 					if subject:
 						if isinstance(subject, list):
 							matches = [mletter for mletter in self.letters if mletter.subject in subject]
 						else:
 							matches = [mletter for mletter in self.letters if mletter.subject == subject]
 						if len(matches) == 0 and block: continue
-						elif len(matches) == 0:
+						elif len(matches) > 0:
 							self.letters.remove(matches[0])
 							return matches[0]
 						else: return None
@@ -479,7 +523,7 @@ class Module():
 						else:
 							matches = [mletter for mletter in self.letters if mletter.sender == sender]
 						if len(matches) == 0 and block: continue
-						elif len(matches) == 0:
+						elif len(matches) > 0:
 							self.letters.remove(matches[0])
 							return matches[0]
 						else: return None
@@ -489,7 +533,7 @@ class Module():
 						else:
 							matches = [mletter for mletter in self.letters if mletter.to == to]
 						if len(matches) == 0 and block: continue
-						elif len(matches) == 0:
+						elif len(matches) > 0:
 							self.letters.remove(matches[0])
 							return matches[0]
 						else: return None

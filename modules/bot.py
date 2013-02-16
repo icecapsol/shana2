@@ -4,7 +4,7 @@ import threading
 def store(phenny, input):
 	store = {}
 	while True:
-		l = phenny.inbox.recv()
+		l = phenny.recv()
 		if l.subject == "STORE":
 			store[l.body['name']] = l.body['value']
 		elif l.subject == "SET DEFAULT":
@@ -20,7 +20,7 @@ def store(phenny, input):
 				phenny.send(l.sender, "VARIABLE", {'name': l.body['name'], 'value': None, 'error': "Not set"})
 
 store.name = 'store'
-store.startup = True
+store.wake_on_letter = True
 
 def logger(phenny, input):
 	levels = {"FATAL": 0, "CRITICAL": 1, "ERROR": 2, "WARNING": 3, "CAUTION": 4, "NOTICE": 5, "STATUS": 6, "DEBUG": 7}
@@ -40,7 +40,7 @@ def logger(phenny, input):
 				print(message['text'], file=sys.stdout)
 	
 logger.name = 'logger'
-logger.daemon = True
+logger.service = False
 
 def reload_module(phenny, input):
 	print(input.sender)
