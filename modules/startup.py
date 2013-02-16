@@ -8,8 +8,6 @@ http://inamidst.com/phenny/
 """
 import time
 def startup(phenny, input): 
-   #if hasattr(phenny.config, 'serverpass'): 
-      #phenny.write(('PASS', phenny.config.serverpass))
 
    phenny.write(('PRIVMSG', 'NickServ'), 'identify %s' % phenny.conf['nickserv'])
    __import__('time').sleep(2)
