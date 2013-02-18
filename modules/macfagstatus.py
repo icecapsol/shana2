@@ -39,7 +39,6 @@ def f_macfagstatus(phenny, input):
 	'4ALL GLORY TO THE HYPNOTOLD',
 	'4THE WASHINGTOLD MONUMENTALLY', 
 	'4H O L Y S H I T F U C K I N G T O L D', 
-	'4ALL GLORY TO THE HYPNOTOLD', 
 	'4ONE WORD: FORCED INDICATION OF TOLD THREAD OVER']
 	not_told = ['.iosysfagstatus', '.udongefagstatus', '.elifagstatus', '.eyeohsysfagstatus', '.iodongfagstatus']
 	if input.group(0).strip() in not_told:
