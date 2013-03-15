@@ -74,7 +74,11 @@ def f_weather(self, origin, match, args):
    if origin.sender == '#talis': 
       if args[0].startswith('.weather '): return
 
-   icao_code = match.group(2)
+   try:
+      icao_code = match.group(2)
+   except AttributeError:
+      icao_code = None
+	 
    if not icao_code: 
       return self.msg(origin.sender, 'Try .weather London, for example?')
 
@@ -224,23 +228,23 @@ def f_weather(self, origin, match, args):
 
       degrees = wind[0:3]
       if degrees == 'VRB': 
-         degrees = u'\u21BB'.encode('utf-8')
+         degrees = '\u21BB'
       elif (float(degrees) <= 22.5) or (float(degrees) > 337.5): 
-         degrees = u'\u2191'.encode('utf-8')
+         degrees = '\u2191'
       elif (float(degrees) > 22.5) and (float(degrees) <= 67.5): 
-         degrees = u'\u2197'.encode('utf-8')
+         degrees = '\u2197'
       elif (float(degrees) > 67.5) and (float(degrees) <= 112.5): 
-         degrees = u'\u2192'.encode('utf-8')
+         degrees = '\u2192'
       elif (float(degrees) > 112.5) and (float(degrees) <= 157.5): 
-         degrees = u'\u2198'.encode('utf-8')
+         degrees = '\u2198'
       elif (float(degrees) > 157.5) and (float(degrees) <= 202.5): 
-         degrees = u'\u2193'.encode('utf-8')
+         degrees = '\u2193'
       elif (float(degrees) > 202.5) and (float(degrees) <= 247.5): 
-         degrees = u'\u2199'.encode('utf-8')
+         degrees = '\u2199'
       elif (float(degrees) > 247.5) and (float(degrees) <= 292.5): 
-         degrees = u'\u2190'.encode('utf-8')
+         degrees = '\u2190'
       elif (float(degrees) > 292.5) and (float(degrees) <= 337.5): 
-         degrees = u'\u2196'.encode('utf-8')
+         degrees = '\u2196'
 
       if not icao_code.startswith('EN') and not icao_code.startswith('ED'): 
          wind = '%s %skt (%s)' % (description, speed, degrees)
@@ -276,13 +280,13 @@ def f_weather(self, origin, match, args):
                level = 0
 
       if level == 8: 
-         cover = u'Overcast \u2601'.encode('utf-8')
+         cover = 'Overcast \u2601'
       elif level == 5: 
          cover = 'Cloudy'
       elif level == 3: 
          cover = 'Scattered'
       elif (level == 1) or (level == 0): 
-         cover = u'Clear \u263C'.encode('utf-8')
+         cover = 'Clear \u263C'
       else: cover = 'Cover Unknown'
    else: cover = 'Cover Unknown'
 
@@ -391,12 +395,6 @@ def f_weather(self, origin, match, args):
             if cond: cond += ', '
             cond += phenomenon
 
-   # if not cond: 
-   #    format = u'%s at %s: %s, %s, %s, %s'
-   #    args = (icao, time, cover, temp, pressure, wind)
-   # else: 
-   #    format = u'%s at %s: %s, %s, %s, %s, %s'
-   #    args = (icao, time, cover, temp, pressure, cond, wind)
 
    if not cond: 
       format = u'%s, %s, %s, %s - %s %s'
@@ -406,4 +404,4 @@ def f_weather(self, origin, match, args):
       args = (cover, temp, pressure, cond, wind, str(icao_code), time)
 
    self.msg(origin.sender, format % args)
-f_weather.rule = (['weather'], r'(.*)')
+f_weather.commands = ['weather']
