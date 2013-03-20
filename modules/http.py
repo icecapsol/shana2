@@ -23,7 +23,7 @@ def f_http(phenny, input):
 	
 	def new_uri(args):
 		uri_file = open('modules/URIs.txt', 'a')
-		uri_file.write('%s\t%s\t%s\t%s' % (str(uri_number), str(int(time.time())), input.nick, '\t'.join(args)))
+		uri_file.write('%s\t%s\t%s\t%s\n' % (str(uri_number), str(int(time.time())), input.nick, '\t'.join(args).replace('\n', '')))
 		uri_file.close()
 
 	def fourchan(url):
@@ -61,7 +61,12 @@ def f_http(phenny, input):
 	def newegg(url):
 		page_url = urlopen(url)
 		soup = BS(page_url)
-		price = "$"+soup.find(id="singleFinalPrice").get("content")
+		if url.find('www.newegg.com/Product'):
+			import json
+			tag = re.search('/?Item=([A-Z0-9]+)', url)
+			price = "$"+json.loads(urlopen("http://content.newegg.com/LandingPage/ItemInfo4ProductDetail.aspx?v2=2012&Item="+tag.group(1)).readlines()[2].decode('utf-8').replace("var rawItemInfo=", '')[:-3])['finalPrice']
+		else:
+			price = "$"+soup.find(id="singleFinalPrice").get("content")
 		title = soup.find("title").get_text()
 
 		phenny.say("[URI %s] 3Title: %s %s" % (uri_number, title, price))
