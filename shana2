@@ -10,7 +10,7 @@ Licensed under the Eiffel Forum License 2.
 http://inamidst.com/phenny/
 """
 
-import sys, os, re, subprocess, time, socket, asyncore, asynchat, imp, threading, datetime, traceback, resource
+import sys, os, re, time, socket, asyncore, asynchat, imp, threading, datetime, traceback
 import yaml
 from multiprocessing import Process, Pipe, Queue
 
@@ -245,7 +245,6 @@ class Launcher():
 			letter = self.inbox.recv()
 			if letter.subject == "NEW EVENT":
 				event = letter.body['event']
-				launch = []
 				remove = []
 				for tag, proclist in self.running.items():
 					for proc in proclist:
@@ -548,7 +547,7 @@ class Module():
 				
 		def discard(self, timeout=1):
 			if self.inbox.poll(timeout):
-				l = self.inbox.recv()
+				self.inbox.recv()
 				return 1
 			else:
 				return 0
