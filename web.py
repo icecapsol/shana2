@@ -10,7 +10,7 @@ from html.entities import name2codepoint
 
 class Grab(urllib.request.URLopener): 
    def __init__(self, *args): 
-      self.version = 'Mozilla/5.0 (Phenny)'
+      self.version = 'Mozilla/5.0 (X11; Linux x86_64; rv:20.0) Gecko/20100101 Firefox/20.0'
       urllib.request.URLopener.__init__(self, *args)
    def http_error_default(self, url, fp, errcode, errmsg, headers): 
       return urllib.request.addinfourl(fp, [headers, errcode], "http:" + url)

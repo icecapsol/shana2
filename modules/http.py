@@ -129,8 +129,10 @@ def f_http(phenny, input):
 
 	def gelbooru(url):
 		gelpage = urlopen(url)
-		soup = BS(gelpage)
-		
+		try:
+			soup = BS(gelpage)
+		except:
+			return
 		authors = [a.find_all("a")[1].get_text() for a in soup.find_all("li", "tag-type-artist")]
 		if len(authors) > 1: author_pl = "s"
 		else: author_pl = ""
@@ -172,7 +174,7 @@ def f_http(phenny, input):
 		return
 
 	def therest(url):
-		page_url = urlopen(urllib.request.Request(url, headers={'User-agent': "Mozilla/5.0 (X11; U; Linux x86_64; en-US; rv:1.9.2.3) Gecko/20100402 Namoroka/3.6.3"}))
+		page_url = urlopen(urllib.request.Request(url, headers={'User-agent': "Mozilla/5.0 (X11; Linux x86_64; rv:20.0) Gecko/20100101 Firefox/20.0"}))
 		try: title = BS(page_url.read(8196)).find("title").get_text().strip()
 		except: return
 		#page = page_url.read(4096)
@@ -189,19 +191,18 @@ def f_http(phenny, input):
 	for catch in input.searches:
 		for module in modulelist:
 			if catch.find(module[0]) != -1: 
-				#try: 
-				module[1](catch)
-				#phenny.msg('iosys', catch)
-				#except Exception, e:
-					#phenny.msg('iosys', str(e))
+				try: 
+					module[1](catch)
+				except urllib.error.HTTPError as e:
+					phenny.say('HTTP Error %d' % e.code)
 				caught = 1
 				uri_number += 1
 				break
 		if caught == 0:
-			#try: 
-			therest(catch)
-			#except Exception, e:
-				#phenny.say(str(e))
+			try: 
+				therest(catch)
+			except urllib.error.HTTPError as e:
+				phenny.say('HTTP Error %d' % e.code)
 			uri_number += 1
 		caught = 0
 
