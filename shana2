@@ -311,7 +311,7 @@ class Launcher():
 				self.send(letter.sender, "MODULES LIST", {'list': mods})
 			elif letter.subject == "SHUTDOWN":
 				if not letter.sender: continue
-				mod_name, func.name = letter.sender.split(".", 2)[1:]
+				mod_name, func_name = letter.sender.split(".", 2)[1:]
 				for mod in self.modules:
 					if mod.name == mod_name:
 						if func_name in mod.acls.keys() and mod.acls[func_name]['group'] in ['sysop', 'admin']:
@@ -510,43 +510,26 @@ class Module():
 		def send(self, to, subject, body):
 			l = Letter(to, subject, body, "module."+self.name)
 			self.outbox.put(l)
-		def recv(self, subject=None, sender=None, to=None, block=True): #TODO accept regexes
+		def recv(self, subject=None, sender=None, block=True):
 			while self.inbox.poll():
 				self.letters.append(self.inbox.recv())
-			if subject or sender or to:
+			if subject or sender:
 				while True:
 					if len(self.letters) == 0: self.letters.append(self.inbox.recv())
 					if subject:
-						if isinstance(subject, list):
-							matches = [mletter for mletter in self.letters if mletter.subject in subject]
-						else:
-							matches = [mletter for mletter in self.letters if mletter.subject == subject]
+						matches = [mletter for mletter in self.letters if len([True for filt in subject if re.match(filt, mletter.subject)]) > 0]
 						if len(matches) == 0 and block: continue
 						elif len(matches) > 0:
 							self.letters.remove(matches[0])
 							return matches[0]
 						else: return None
 					elif sender:
-						if isinstance(sender, list):
-							matches = [mletter for mletter in self.letters if mletter.sender in sender]
-						else:
-							matches = [mletter for mletter in self.letters if mletter.sender == sender]
+						matches = [mletter for mletter in self.letters if len([True for filt in sender if re.match(filt, mletter.sender)]) > 0]
 						if len(matches) == 0 and block: continue
 						elif len(matches) > 0:
 							self.letters.remove(matches[0])
 							return matches[0]
 						else: return None
-					elif to:
-						if isinstance(to, list):
-							matches = [mletter for mletter in self.letters if mletter.to in to]
-						else:
-							matches = [mletter for mletter in self.letters if mletter.to == to]
-						if len(matches) == 0 and block: continue
-						elif len(matches) > 0:
-							self.letters.remove(matches[0])
-							return matches[0]
-						else: return None
-				
 			else:
 				if len(self.letters) > 0:
 					return self.letters.pop(0)

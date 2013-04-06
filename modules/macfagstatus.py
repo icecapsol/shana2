@@ -9,7 +9,7 @@ def f_macfagstatus(phenny, input):
 	phenny.send("module.bot.store", "SET DEFAULT", {'name': "module.store.cooldown", 'value': 0})
 	
 	for i in range(4):
-		l = phenny.recv(subject="VARIABLE")
+		l = phenny.recv(subject=["VARIABLE",])
 		if l.body['name'] == "module.store.last": last = l.body['value']
 		elif l.body['name'] == "module.store.rank": rank = l.body['value']
 		elif l.body['name'] == "module.store.said": said = l.body['value']
