@@ -8,12 +8,12 @@ http://inamidst.com/phenny/
 """
 import time
 def startup(phenny, input): 
+	if 'nickserv' in phenny.conf.keys():
+		phenny.write(('PRIVMSG', 'NickServ'), 'identify %s' % phenny.conf['nickserv'])
+		time.sleep(2)
 
-   phenny.write(('PRIVMSG', 'NickServ'), 'identify %s' % phenny.conf['nickserv'])
-   __import__('time').sleep(2)
-   
-   for channel in phenny.conf['channels']: 
-      phenny.write(('JOIN', channel))
+	for channel in phenny.conf['channels']: 
+		phenny.write(('JOIN', channel))
 
 startup.rule = r'(.*)'
 startup.event = '251'
