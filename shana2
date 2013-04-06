@@ -10,7 +10,7 @@ Licensed under the Eiffel Forum License 2.
 http://inamidst.com/phenny/
 """
 
-import sys, os, re, time, socket, asyncore, asynchat, imp, threading, datetime, traceback
+import sys, os, re, time, socket, asyncore, asynchat, imp, threading, datetime, traceback, getopt
 import yaml
 from multiprocessing import Process, Pipe, Queue
 
@@ -240,6 +240,9 @@ class Launcher():
 		l = Letter(to, subject, body, "self.launcher")
 		self.outbox.put(l)
 	
+	def shutdown(self, args):
+		pass
+	
 	def run(self):
 		while True:
 			letter = self.inbox.recv()
@@ -306,6 +309,14 @@ class Launcher():
 				for mod in self.modules:
 					mods[mod.name] = [func.name for func in mod.functions]
 				self.send(letter.sender, "MODULES LIST", {'list': mods})
+			elif letter.subject == "SHUTDOWN":
+				if not letter.sender: continue
+				mod_name, func.name = letter.sender.split(".", 2)[1:]
+				for mod in self.modules:
+					if mod.name == mod_name:
+						if func_name in mod.acls.keys() and mod.acls[func_name]['group'] in ['sysop', 'admin']:
+							self.shutdown(letter.body)
+
 class Letter:
 	def __init__(self,to, subject, body, sender=None):
 		self.sender = sender
@@ -413,7 +424,6 @@ class Module():
 			self.func = func
 			self.rule = getattr(self.func, 'rule', [])
 			self.commands = getattr(self.func, 'commands', [])
-			self.daemon = getattr(self.func, 'daemon', False)
 			self.startup = getattr(self.func, 'startup', False)
 			self.service = getattr(self.func, 'service', False)
 			self.wake_on_letter = getattr(self.func, 'wake_on_letter', False)
@@ -561,8 +571,9 @@ class Module():
 		self.acl = ACL(module)
 		for name, func in vars(module).items():
 			if not str(type(func)) == "<class 'function'>": continue
-			self.functions.append(Module.Function(name, func, config))
-			self.acl.funcs[name] = {'owner': getattr(func, 'owner', 'nobody'), 
+			fname = getattr(func, 'name', name)
+			self.functions.append(Module.Function(fname, func, config))
+			self.acl.funcs[fname] = {'owner': getattr(func, 'owner', 'nobody'), 
 							    'group': getattr(func, 'group', 'nobody'), 
 							    'priority': getattr(func, 'priority', 'low'), 
 							    'mode': getattr(module, 'mode', (True, True, True))}
@@ -626,7 +637,15 @@ class Module():
 			bot.say(report[0] + ' (' + report[1] + ')')
 		bot.send("self.post office", "Remove", {'name': "module.%s.%s" % (mod_name, func.name)})
 
-conf_file = open("shana2.conf", "r")
+conf_name = "shana2.conf"
+
+optlist, args = getopt.getopt(sys.argv[1:], 'c:', ['conf',])
+
+for opt in optlist:
+    if opt[0] in ['-c', '--conf']:
+        conf_name = opt[1]
+
+conf_file = open(conf_name, "r")
 config = yaml.load(conf_file)
 conf_file.close()
 
