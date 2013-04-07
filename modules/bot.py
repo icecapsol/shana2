@@ -1,5 +1,5 @@
 #!/usr/bin/python
-import threading
+import threading, sys
 
 def store(phenny, input):
 	store = {}
@@ -24,7 +24,7 @@ store.wake_on_letter = True
 
 def logger(phenny, input):
 	levels = {"FATAL": 0, "CRITICAL": 1, "ERROR": 2, "WARNING": 3, "CAUTION": 4, "NOTICE": 5, "STATUS": 6, "DEBUG": 7}
-	level = 5
+	level = 6
 	while True:
 		l = phenny.inbox.recv()
 		if l.subject == "LOG LEVEL":
@@ -34,13 +34,12 @@ def logger(phenny, input):
 				level = l.body['numeric']
 		else:
 			message = l.body
-			if message['numeric'] > 3:
-				print(message['text'], file=sys.stderr)
-			else:
-				print(message['text'], file=sys.stdout)
-	
+			if message['numeric'] <= level:
+				print("%s" % message['text'], file=sys.stdout)
+
 logger.name = 'logger'
-logger.service = False
+logger.service = True
+logger.wake_on_letter = True
 
 def reload_module(phenny, input):
 	print(input.sender)

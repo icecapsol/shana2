@@ -31,7 +31,7 @@ class Communicator():
 	
 		def initiate_connect(self): 
 			self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
-			#print("Listener: Connecting to %s %s" % (self.host, self.port))
+			self.send_letter("module.bot.logger", "LOG", {'text': "Listener: Connecting to %s %s" % (self.host, self.port), 'numeric': 6})
 			self.connect((self.host, int(self.port)))
 		def handle_connect(self): 
 			self.send_letter("module.irc.login", "CONNECT", {'message': "new connection"})
@@ -87,6 +87,8 @@ class Parser():
 	def send(self, to, subject, body):
 		l = Letter(to, subject, body, "self.parser")
 		self.outbox.put(l)
+	def log(self, line, level):
+		self.send("module.bot.logger", "LOG", {'text': "Parser: %s" % line, 'numeric': level})
 		
 	def run(self):
 		while True:
@@ -94,7 +96,7 @@ class Parser():
 			if l.subject == "NEW LINE":
 				line = l.body['line']
 			else: continue
-			#print(line)
+			self.log("new line '%s'" % line.strip(), 7)
 			
 			if line.startswith(':'): 
 				source, line = line[1:].split(' ', 1)
@@ -175,7 +177,7 @@ class Launcher():
 		self.run()
 	
 	def load_module(self, fn):
-		print("LAUNCHER: Loading module %s" % fn.rpartition(".")[0])
+		self.log("loading module %s" % fn.rpartition(".")[0], 7)
 		mod = Module(fn, dict(list(self.config["Modules"].items()) + list(self.config["Global"].items()) + list(self.config.get("Module.%s" % fn.rpartition(".")[0], {}).items())))
 		for m in self.modules:
 			if m.name == mod.name:
@@ -195,19 +197,19 @@ class Launcher():
 		p = Process(target=mod.start, args=(event, func, (q[0], self.outbox), mod.name))
 		p.start()
 		self.send("self.post office", "Add", {'name': "module.%s.%s.%s" % (mod.name, func.name, p.pid), "queue": q[1]})
-		print("LAUNCHER: Launching module %s.%s.%s" % (mod.name, func.name, p.pid))
+		self.log("Launching module %s.%s.%s" % (mod.name, func.name, p.pid), 6)
 		return p
 	
 	def startup(self):
 		# Post office
-		print("LAUNCHER: Starting post office")
 		self.pobox = Postoffice(self.outbox, dict(list(self.config["Post Office"].items()) + list(self.config["Global"].items())))
 		p = Process(target=self.pobox.run, args=())
 		p.start()
 		self.send("self.post office", "Add", {'name': "self.launcher.%s" % p.pid, "queue": self.box_r})
+		self.log("Starting post office", 5)
 		
 		# generator
-		print("LAUNCHER: Starting generator")
+		self.log("Starting generator", 5)
 		gbox = Pipe()
 		self.generator = Generator(gbox[0], self.outbox, dict(list(self.config['Generator'].items()) + list(self.config["Global"].items())))
 		p = Process(target=self.generator.run, args=())
@@ -215,7 +217,7 @@ class Launcher():
 		self.send("self.post office", "Add", {'name': "self.generator.%s" % p.pid, "queue": gbox[1]})
 		
 		# parser
-		print("LAUNCHER: Starting parser")
+		self.log("Starting parser", 5)
 		pbox = Pipe()
 		self.parser = Parser(pbox[0], self.outbox, dict(list(self.config['Parser'].items()) + list(self.config["Global"].items())))
 		p = Process(target=self.parser.run, args=())
@@ -223,7 +225,7 @@ class Launcher():
 		self.send("self.post office", "Add", {'name': "self.parser.%s" % p.pid, "queue": pbox[1]})
 		
 		# listener
-		print("LAUNCHER: Starting communicator")
+		self.log("Starting communicator", 5)
 		lbox = Pipe()
 		self.communicator = Communicator(lbox[0], self.outbox, dict(list(self.config['Communicator'].items()) + list(self.config["Global"].items())))
 		p = Process(target=self.communicator.run, args=())
@@ -233,12 +235,15 @@ class Launcher():
 		for m in self.modules:
 			for func in m.functions:
 				if func.startup:
-					print("LAUNCHER: Launching startup module %s." % func.name)
+					self.log("Launching startup module %s." % func.name, 6)
 					self.launch_module(m, func, None)
 
 	def send(self, to, subject, body):
 		l = Letter(to, subject, body, "self.launcher")
 		self.outbox.put(l)
+	
+	def log(self, line, level):
+		self.send("module.bot.logger", "LOG", {'text': "Launcher: %s" % line, 'numeric': level})
 	
 	def shutdown(self, args):
 		pass
@@ -269,7 +274,7 @@ class Launcher():
 			elif letter.subject == "WAKE":
 				try: mclass, mname, fname = letter.body['letter'].to_f[:3]
 				except Exception as e:
-					print(e)
+					self.log("Exception %s" % repr(e), 2)
 					continue
 				if not mclass == "module":
 					self.send("self.post office", "WAKE FAIL", {'letter': letter.body['letter']})
@@ -278,6 +283,10 @@ class Launcher():
 					if mod.name == mname:
 						for func in mod.functions:
 							if func.name == fname:
+								full_name = "module.%s.%s" % (mod.name, func.name)
+								if full_name in self.running.keys() and len(self.running.values()) > 0:
+									self.log("WAKE event for module already awake sent to %s" % full_name, 7)
+									break
 								if not func.wake_on_letter:
 									self.send("self.post office", "WAKE FAIL", {'letter': letter.body['letter']})
 									break
@@ -401,6 +410,9 @@ class Postoffice():
 			if name: box.send(letter)
 			else: # check if the module will wake up
 				name, box = self.best_match(["self", "launcher"], self.boxes, 0)
+				if not name:
+					self.inbox.put(letter)
+					continue
 				box.send(Letter("self.launcher", "WAKE", {"letter": letter}))
 
 class ACL():
@@ -492,14 +504,12 @@ class Module():
 				input = input.replace('\n', '')
 				input = input.replace('\r', '')
 				return input
-			#try: 
 			args = [safe(arg) for arg in args]
 			if text is not None: 
 				text = safe(text)
 				self.send("self.communicator", "NEW IRC OUTPUT", {'message': ' '.join(args) + ' :' + text + '\r\n'})
 			else: self.send("self.communicator", "NEW IRC OUTPUT", {'message': ' '.join(args) + '\r\n'})
-			#except Exception as e:
-				#print(e)
+
 		def msg(self, recipient, text):
 			self.write(('PRIVMSG', recipient), text)
 		def say(self, text):
@@ -512,6 +522,8 @@ class Module():
 		def send(self, to, subject, body):
 			l = Letter(to, subject, body, self.name)
 			self.outbox.put(l)
+		def log(self, line, level):
+			self.send("module.bot.logger", "LOG", {'text': "%s: %s" % (self.name, line), 'numeric': level})
 		def recv(self, subject=None, sender=None, block=True):
 			while self.inbox.poll():
 				self.letters.append(self.inbox.recv())
