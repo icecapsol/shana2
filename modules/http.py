@@ -128,6 +128,7 @@ def f_http(phenny, input):
 		new_uri([url, "3Ompldr: %s [%s] - %s hits" % (info['name'], info['size'], info['hits'])])
 
 	def gelbooru(url):
+		if hasattr(re.search('jpg|png|gif|swf', url), "group"): return
 		gelpage = urlopen(url)
 		try:
 			soup = BS(gelpage)
@@ -149,6 +150,7 @@ def f_http(phenny, input):
 		return
 	
 	def danbooru(url):
+		if hasattr(re.search('jpg|png|gif|swf', url), "group"): return
 		danpage = urlopen(url)
 		soup = BS(danpage)
 		
