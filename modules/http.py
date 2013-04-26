@@ -134,14 +134,11 @@ def f_http(phenny, input):
 		except:
 			return
 		authors = [a.find_all("a")[1].get_text() for a in soup.find_all("li", "tag-type-artist")]
-		if len(authors) > 1: author_pl = "s"
-		else: author_pl = ""
+		author_pl = "s" if len(authors) > 1 else ""
 		origins = [o.find_all("a")[1].get_text() for o in soup.find_all("li", "tag-type-copyright")]
-		if len(origins) > 1: origin_pl = "s"
-		else: origin_pl = ""
+		origin_pl = "s" if len(origins) > 1 else ""
 		chars = [c.find_all("a")[1].get_text() for c in soup.find_all("li", "tag-type-character")]
-		if len(chars) > 1: char_pl = "s"
-		else: char_pl = ""
+		char_pl = "s" if len(chars) > 1 else ""
 		if soup.find("li", text=re.compile("Rating")).get_text() == "Rating: Safe": warn = ""
 		else: warn = "[NSFW]"
 		
@@ -156,14 +153,11 @@ def f_http(phenny, input):
 		soup = BS(danpage)
 		
 		authors = [a.find_all("a")[1].get_text() for a in soup.find_all("li", "tag-type-artist")]
-		if len(authors) > 1: author_pl = "s"
-		else: author_pl = ""
+		author_pl = "s" if len(authors) > 1 else ""
 		origins = [o.find_all("a")[1].get_text() for o in soup.find_all("li", "tag-type-copyright")]
-		if len(origins) > 1: origin_pl = "s"
-		else: origin_pl = ""
+		origin_pl = "s" if len(origins) > 1 else ""
 		chars = [c.find_all("a")[1].get_text() for c in soup.find_all("li", "tag-type-character")]
-		if len(chars) > 1: char_pl = "s"
-		else: char_pl = ""
+		char_pl = "s" if len(chars) > 1 else ""
 		if soup.find("li", text=re.compile("Rating")).get_text() == "Rating: Safe": warn = ""
 		else: warn = "[NSFW]"
 		
