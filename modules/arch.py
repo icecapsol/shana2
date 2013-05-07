@@ -1,10 +1,9 @@
 #!/usr/bin/python
 from bs4 import BeautifulSoup as BS
-import matplotlib.pyplot as plt
 from urllib.request import urlopen
 
-def arch(phenny, input): 
-	args = input.group(2).split()
+def arch(shana, event): 
+	args = event.group(2).split()
 	package = args[0]
 	repos = {'community': 'repo=Community&', 'community-testing': 'repo=Community-Testing&', 'core': 'repo=Core&', 'extra': 'repo=Extra&',
 		    'multilib': 'repo=Multilib&', 'multilib-testing': 'repo=Multilib-Testing&', 'testing': 'repo=Testing&'}
@@ -22,7 +21,7 @@ def arch(phenny, input):
 	
 	try: results = int(soup.find_all('p')[1].get_text().split()[0])
 	except:
-		phenny.say("No packages found.")
+		shana.say("No packages found.")
 		return
 	plist = soup.find('tbody')
 	
@@ -40,20 +39,20 @@ def arch(phenny, input):
 	
 	if results == 1:
 		p = list(psample.values())[0]
-		phenny.say("%s %s - %s (%s) %s https://www.archlinux.org%s" % (list(psample.keys())[0], p['version'], p['desc'], p['date'], p['repo'].upper(), p['link']))
+		shana.say("%s %s - %s (%s) %s https://www.archlinux.org%s" % (list(psample.keys())[0], p['version'], p['desc'], p['date'], p['repo'].upper(), p['link']))
 	else:
-		phenny.say("%s (%d results)" % (', '.join(psample.keys()), results))
+		shana.say("%s (%d results)" % (', '.join(psample.keys()), results))
 arch.commands = ['arch']
 
-def aur(phenny, input): 
-	package = input.group(2).split()[0]
+def aur(shana, event): 
+	package = event.group(2).split()[0]
 	
 	url = "https://aur.archlinux.org/packages/?O=0&K=%s" % package
 	soup = BS(urlopen(url).read())
 	
 	try: results = int(soup.find_all('p')[1].get_text().split()[0])
 	except:
-		phenny.say("No packages found.")
+		shana.say("No packages found.")
 		return
 	plist = soup.find('tbody')
 	
@@ -70,8 +69,8 @@ def aur(phenny, input):
 	
 	if results == 1:
 		p = list(psample.values())[0]
-		phenny.say("%s - %s (%s votes) %s https://aur.archlinux.org%s" % (list(psample.keys())[0], p['desc'], p['votes'], p['category'].upper(), p['link']))
+		shana.say("%s - %s (%s votes) %s https://aur.archlinux.org%s" % (list(psample.keys())[0], p['desc'], p['votes'], p['category'].upper(), p['link']))
 	else:
-		phenny.say("%s (%d results)" % (', '.join(psample.keys()), results))
+		shana.say("%s (%d results)" % (', '.join(psample.keys()), results))
 
 aur.commands = ['aur']
