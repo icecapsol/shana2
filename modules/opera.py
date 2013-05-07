@@ -1,15 +1,13 @@
 #!/usr/bin/env python
 
-def f_opera(phenny, input): 
-	phenny.say("http://www.opera.com/")
+def opera(shana, event): 
+	shana.say("http://www.opera.com/")
 
-f_opera.name = 'opera'
-f_opera.commands = (['opera'])
-f_opera.priority = 'low'
+opera.name = 'opera'
+opera.commands = (['opera'])
 
-def f_gentoo(phenny, input): 
-	phenny.say("http://wiki.archlinux.org/index.php/Arch_Compared_to_Other_Distributions#Gentoo_Linux")
+def gentoo(shana, event): 
+	shana.say("http://wiki.archlinux.org/index.php/Arch_Compared_to_Other_Distributions#Gentoo_Linux")
 
-f_gentoo.name = 'gentoo'
-f_gentoo.commands = (['gentoo'])
-f_gentoo.priority = 'low'
+gentoo.name = 'gentoo'
+gentoo.commands = (['gentoo'])
