@@ -1,13 +1,13 @@
 ﻿#!/usr/bin/python
 import urllib.request
 from urllib.request import urlopen
-import random, re, struct, time, tempfile, datetime
+import re, time, datetime
 from bs4 import BeautifulSoup as BS
 import _identify
 
-def f_http(phenny, input):
-	if input.bytes.startswith(".un404"): return
-	if not input.sender.startswith("#") and not input.admin: return
+def http(shana, event):
+	if event.bytes.startswith(".un404"): return
+	if not event.sender.startswith("#") and not event.admin: return
 	
 	uri_file = open('modules/URIs.txt', 'r')
 	uri_list = uri_file.readlines()
@@ -23,12 +23,12 @@ def f_http(phenny, input):
 	
 	def new_uri(args):
 		uri_file = open('modules/URIs.txt', 'a')
-		uri_file.write('%s\t%s\t%s\t%s\n' % (str(uri_number), str(int(time.time())), input.nick, '\t'.join(args).replace('\n', '')))
+		uri_file.write('%s\t%s\t%s\t%s\n' % (str(uri_number), str(int(time.time())), event.nick, '\t'.join(args).replace('\n', '')))
 		uri_file.close()
 
 	def fourchan(url):
 		if url.find("/b/") != -1:
-			phenny.write(['KICK', input.sender+' '+input.nick], 'Rule #1, faggot')
+			shana.write(['KICK', event.sender+' '+event.nick], 'Rule #1, faggot')
 			return
 		if url.find("boards") != -1:
 			page_url = urlopen(url)
@@ -38,24 +38,24 @@ def f_http(phenny, input):
 			except: topic = ""
 			
 			if topic:
-				phenny.say("[URI %s] 034chan %s | %s" % (uri_number, title, topic))
+				shana.say("[URI %s] 034chan %s | %s" % (uri_number, title, topic))
 				new_uri([url, "034chan %s | %s\n"  % (title, topic)])
 			else:
-				phenny.say("[URI %s] 034chan %s" % (uri_number, title))
+				shana.say("[URI %s] 034chan %s" % (uri_number, title))
 				new_uri([url, "034chan %s\n"  % title])
 		elif url.find("images") != -1:
 			if url.find("/mlp/") != -1:
-				phenny.say("ponies :/")
+				shana.say("ponies :/")
 				return
 			if url.rpartition('.')[2].lower() in ['jpg', 'jpeg', 'png', 'gif', 'tif', 'tiff']:
 				image_url = urlopen(url)
 				image = image_url.read(32768)
 				try: w, h, t = _identify.identify("%w %h %m", image).strip().split()
 				except:
-					phenny.say("Yep, that's a link")
+					shana.say("Yep, that's a link")
 					return
 				
-				phenny.say("[URI %s] 034chan: %sx%s %s" % (uri_number, w, h, t))
+				shana.say("[URI %s] 034chan: %sx%s %s" % (uri_number, w, h, t))
 				new_uri([url, "034chan %sx%s %s\n" % (w, h, t)])
 
 	def newegg(url):
@@ -69,7 +69,7 @@ def f_http(phenny, input):
 			price = "$"+soup.find(id="singleFinalPrice").get("content")
 		title = soup.find("title").get_text()
 
-		phenny.say("[URI %s] 3Title: %s %s" % (uri_number, title, price))
+		shana.say("[URI %s] 3Title: %s %s" % (uri_number, title, price))
 		new_uri([url, "3Title: %s %s\n" % (title, price)])
 	
 	def flickr(url):
@@ -78,21 +78,21 @@ def f_http(phenny, input):
 		new_url = page_url.geturl()[:-1]
 		page_url.close()
 		
-		phenny.say("[URI %s] 4Flickr: %s's photostream" % (uri_number, new_url.rpartition("/")[0].rpartition("/")[2]))
+		shana.say("[URI %s] 4Flickr: %s's photostream" % (uri_number, new_url.rpartition("/")[0].rpartition("/")[2]))
 		new_uri([url, "[URI %s] Flickr: %s's photostream" % (uri_number, new_url.rpartition("/")[0].rpartition("/")[2])])
 		
 	def youtube(url):
 		if url.find("v=") != -1: page_url = urlopen("http://gdata.youtube.com/feeds/api/videos/"+url.partition("v=")[2].partition("&")[0])
 		elif url.find("/v/") != -1: page_url = urlopen("http://gdata.youtube.com/feeds/api/videos/"+url.partition("/v/")[2].partition("&")[0])
 		elif url.find("/user/") != -1:
-			phenny.say("[URI %s] 1,0You0,4tube %s's Channel" % (uri_number, url.partition("/user/")[2]))
+			shana.say("[URI %s] 1,0You0,4tube %s's Channel" % (uri_number, url.partition("/user/")[2]))
 			new_uri([url, "1,0You0,4tube %s's Channel\n" % url.partition("/user/")[2]])
 			return
 		else:
 			page_url = urlopen(url)
 			soup = BS(page_url.read(8196))
 			title = soup.find("title").get_text().strip()
-			phenny.say("[URI %s] 1,0You0,4tube %s" % (uri_number, title))
+			shana.say("[URI %s] 1,0You0,4tube %s" % (uri_number, title))
 			new_uri([url, "1,0You0,4tube %s\n" % title])
 			return
 
@@ -111,7 +111,7 @@ def f_http(phenny, input):
 		else:
 			thumbs_up = int( ((float(soup.find("gd:rating")['average']) - 1.0) / 4.0) * rates )
 		
-		phenny.say("[URI %s] 1,0You0,4tube %s [%d:%02d] - %s views %d 3☺ %d 4☹" % (uri_number, title, minutes, seconds, views, thumbs_up, rates - thumbs_up))
+		shana.say("[URI %s] 1,0You0,4tube %s [%d:%02d] - %s views %d 3☺ %d 4☹" % (uri_number, title, minutes, seconds, views, thumbs_up, rates - thumbs_up))
 		new_uri([url, "1,0You0,4tube %s [%d:%02d]\n" % (title, minutes, seconds)])
 
 	def omploader(url):
@@ -124,7 +124,7 @@ def f_http(phenny, input):
 		'uploaded': stuff[5].rpartition('</div>')[0].rpartition('>')[2],
 		'type': stuff[6].rpartition('</div>')[0].rpartition('>')[2]}
 		
-		phenny.say("[URI %s] 3Ompldr: %s [%s] - %s hits" % (uri_number, info['name'], info['size'], info['hits']))
+		shana.say("[URI %s] 3Ompldr: %s [%s] - %s hits" % (uri_number, info['name'], info['size'], info['hits']))
 		new_uri([url, "3Ompldr: %s [%s] - %s hits" % (info['name'], info['size'], info['hits'])])
 
 	def gelbooru(url):
@@ -145,7 +145,7 @@ def f_http(phenny, input):
 		
 		title = "%s Author%s: %s Origin%s: %s Character%s: %s" % (warn, author_pl, ', '.join(authors), origin_pl, ', '.join(origins), char_pl, ', '.join(chars))
 
-		phenny.say("[URI %s] 3Gelbooru: %s" % (uri_number, title))
+		shana.say("[URI %s] 3Gelbooru: %s" % (uri_number, title))
 		new_uri([url, "3Title: %s\n" % title])
 		return
 	
@@ -165,7 +165,7 @@ def f_http(phenny, input):
 		
 		title = "%s Author%s: %s Origin%s: %s Character%s: %s" % (warn, author_pl, ', '.join(authors), origin_pl, ', '.join(origins), char_pl, ', '.join(chars))
 
-		phenny.say("[URI %s] 3Danbooru: %s" % (uri_number, title))
+		shana.say("[URI %s] 3Danbooru: %s" % (uri_number, title))
 		new_uri([url, "3Title: %s\n" % title])
 		return
 
@@ -176,7 +176,7 @@ def f_http(phenny, input):
 		#page = page_url.read(4096)
 		if not title: return
 
-		phenny.say("[URI %s] 3Title: %s" % (uri_number, title))
+		shana.say("[URI %s] 3Title: %s" % (uri_number, title))
 		new_uri([url, "3Title: %s\n" % title])
 		return
 
@@ -184,13 +184,13 @@ def f_http(phenny, input):
 	modulelist = [('4chan.org', fourchan), ('newegg.c', newegg), ('.youtube.com', youtube), ('.static.flickr.com', flickr),
 	 ('ompldr.org', omploader), ('omploader.org', omploader), ('gelbooru.com', gelbooru), ('danbooru.donmai.us', danbooru)]
 	caught = 0
-	for catch in input.searches:
+	for catch in event.searches:
 		for module in modulelist:
 			if catch.find(module[0]) != -1: 
 				try: 
 					module[1](catch)
 				except urllib.error.HTTPError as e:
-					phenny.say('HTTP Error %d' % e.code)
+					shana.say('HTTP Error %d' % e.code)
 				caught = 1
 				uri_number += 1
 				break
@@ -198,10 +198,9 @@ def f_http(phenny, input):
 			try: 
 				therest(catch)
 			except urllib.error.HTTPError as e:
-				phenny.say('HTTP Error %d' % e.code)
+				shana.say('HTTP Error %d' % e.code)
 			uri_number += 1
 		caught = 0
 
-f_http.name = 'http'
-f_http.rule = (r'http[s]?:\/\/\S+')
-f_http.priority = 'low'
+http.name = 'http'
+http.rule = (r'http[s]?:\/\/\S+')
