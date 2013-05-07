@@ -1,8 +1,8 @@
 #!/usr/bin/python
 import random, re, string
 
-def f_caps(phenny, input):
-	try: capt_capslock = str(input.group(0))
+def caps(shana, event):
+	try: capt_capslock = str(event.group(0))
 	except: return
 	if re.search('[a-z]', capt_capslock): return
 	craps = open("modules/caps.db", 'r')
@@ -16,11 +16,11 @@ def f_caps(phenny, input):
 	
 	cap = random.randint(0, len(raps)-1)
 	say_it_loud = raps[cap].rpartition('\t')[0]
-	phenny.send("module.bot.store", "SET DEFAULT", {'name': "module.cc.last", 'value': cap})
-	l = phenny.recv()
-	#phenny.vars.update(capslock=cap)
+	shana.send("module.bot.store", "SET DEFAULT", {'name': "module.cc.last", 'value': cap})
+	l = shana.recv()
+	#shana.vars.update(capslock=cap)
 
-	phenny.say(str(say_it_loud))
+	shana.say(str(say_it_loud))
 
 	if capt_capslock.find('FFF') != -1: return
 	if capt_capslock.find('!!') != -1: return
@@ -31,17 +31,16 @@ def f_caps(phenny, input):
 			return
 
 	craps = open("modules/caps.db", 'a')
-	craps.write(capt_capslock+'\t'+input.nick+'\n'.strip('>"\''))
+	craps.write(capt_capslock+'\t'+event.nick+'\n'.strip('>"\''))
 	craps.close()
 	
-f_caps.name = 'caps'
-f_caps.rule = (r'[^a-z^$*+{\\\d|()]{12,}.*')
-f_caps.priority = 'low'
+caps.name = 'caps'
+caps.rule = (r'[^a-z^$*+{\\\d|()]{12,}.*')
 
-def f_cc(phenny, input):
+def cc(shana, event):
 	try: capsDB = open("modules/caps.db", 'r')
 	except:
-		phenny.say("DB access failure.")
+		shana.say("DB access failure.")
 		return
 
 	cap_list = capsDB.readlines()
@@ -53,17 +52,17 @@ def f_cc(phenny, input):
 		exclaim.append(shout)
 		captianCL.append(shouter)
 
-	command, split, args = input.group(2).partition(' ')
+	command, split, args = event.group(2).partition(' ')
 
 	if command == 'last' or not command:
-		phenny.send("module.bot.store", "SET DEFAULT", {'name': "module.cc.last", 'value': -1})
-		l = phenny.recv()
+		shana.send("module.bot.store", "SET DEFAULT", {'name': "module.cc.last", 'value': -1})
+		l = shana.recv()
 		
 		if l.subject == "VARIABLE" and l.body['name'] == "module.cc.last": last = l.body['value']
 		if last == -1:
-			phenny.say("┐('～`；)┌")
+			shana.say("┐('～`；)┌")
 		else: 
-			phenny.say(captianCL[last])
+			shana.say(captianCL[last])
 		return
 
 	if command == 'what':
@@ -72,20 +71,20 @@ def f_cc(phenny, input):
 			if user == args+'\n':
 				how_many = how_many + 1
 		if how_many == 0:
-			phenny.say(args+" is a very quiet person.")
+			shana.say(args+" is a very quiet person.")
 		else:
-			if how_many == 1: phenny.say("1 record found.")
-			else: phenny.say("%s records found." % how_many)
+			if how_many == 1: shana.say("1 record found.")
+			else: shana.say("%s records found." % how_many)
 
 	elif command == 'who':
 		for shout in exclaim:
 			if shout == args:
-				phenny.say(captianCL[exclaim.index(shout)])
+				shana.say(captianCL[exclaim.index(shout)])
 				return
-		phenny.say("Never heard that one.")
+		shana.say("Never heard that one.")
 
 	elif command == 'del':
-		if not input.admin: return
+		if not event.admin: return
 		records_gone = 0
 		for shout in exclaim:
 			if shout == args:
@@ -95,11 +94,11 @@ def f_cc(phenny, input):
 		capsDB = open("modules/caps.db", 'w')
 		capsDB.writelines(cap_list)
 		capsDB.close()
-		if records_gone == 1: phenny.say("1 record removed.")
-		else: phenny.say("%s records removed." % records_gone)
+		if records_gone == 1: shana.say("1 record removed.")
+		else: shana.say("%s records removed." % records_gone)
 
 	elif command == 'rm-rf':
-		if not input.admin: return
+		if not event.admin: return
 		records_gone = 0
 		for user in captianCL:
 			if user == args+'\n':
@@ -108,36 +107,36 @@ def f_cc(phenny, input):
 		capsDB = open("modules/caps.db", 'w')
 		capsDB.writelines(cap_list)
 		capsDB.close()
-		if records_gone == 1: phenny.say("1 record removed.")
-		else: phenny.say("%s records removed." % records_gone)
+		if records_gone == 1: shana.say("1 record removed.")
+		else: shana.say("%s records removed." % records_gone)
 
 	elif command == 'ls-l':
-		if not input.admin: return
+		if not event.admin: return
 		captianCS = set(captianCL)
 
 		name_list = ''
 		for name in captianCS:
 			name_list += ', '+name
 		# name_list = ' '.join(captianCS)
-		phenny.say(name_list)
-		phenny.msg('iosys', name_list)
+		shana.say(name_list)
+		shana.msg('iosys', name_list)
 	
 	elif command == 'search':
 		matches = 0
 		for shout in exclaim:
 			if shout.find(args.upper()) != -1: matches += 1
-		if matches == 1: phenny.say("1 match found")
-		else: phenny.say("%s matches found" % matches)
+		if matches == 1: shana.say("1 match found")
+		else: shana.say("%s matches found" % matches)
 	
 	elif command == 'list':
 		matches = 0
 		for shouter in captianCL:
 			if shouter[:-1] == args: matches += 1
-		if matches == 1: phenny.say("1 shout by %s" % args)
-		else: phenny.say("%s shouts by %s" % (matches, args))
+		if matches == 1: shana.say("1 shout by %s" % args)
+		else: shana.say("%s shouts by %s" % (matches, args))
 	
 	elif command == 'kill':
-		if not input.admin: return
+		if not event.admin: return
 		matches = 0
 		for shout in exclaim:
 			if shout.find(args.upper()) != -1:
@@ -146,9 +145,8 @@ def f_cc(phenny, input):
 		capsDB = open("modules/caps.db", 'w')
 		capsDB.writelines(cap_list)
 		capsDB.close()
-		if matches == 1: phenny.say("1 record removed.")
-		else: phenny.say("%s records removed." % matches)
+		if matches == 1: shana.say("1 record removed.")
+		else: shana.say("%s records removed." % matches)
 		
-f_cc.name = 'cc'
-f_cc.rule = (['cc'], r'(#?.*)')
-f_cc.priority = 'low'
+cc.name = 'cc'
+cc.rule = (['cc'], r'(#?.*)')
