@@ -1,22 +1,22 @@
 #!/usr/bin/python
 import time
 
-def login(phenny, input):
-	phenny.write(("USER", phenny.conf['user'], '+iw', phenny.conf['nick']), phenny.conf['name'])
-	phenny.write(["NICK"], phenny.conf['nick'])
+def login(shana, event):
+	shana.write(("USER", shana.conf['user'], '+iw', shana.conf['nick']), shana.conf['name'])
+	shana.write(["NICK"], shana.conf['nick'])
 
 login.name = 'login'
 login.wake_on_letter = True
 
-def pong(phenny, input):
-	phenny.write(['PONG'], input.group(0))
+def pong(shana, event):
+	shana.write(['PONG'], event.group(0))
 
 pong.name = 'pong'
 pong.rule = (r'(.*)')
 pong.event = ['PING']
 
-def echo(phenny, input):
-	phenny.say(input.group(2))
+def echo(shana, event):
+	shana.say(event.group(2))
 
 echo.name = 'echo'
 echo.commands = ['echo']
