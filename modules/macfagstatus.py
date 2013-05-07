@@ -1,15 +1,15 @@
 #!/usr/bin/env python
 import random, time
 
-def f_macfagstatus(phenny, input):
-	if not input.group(0).startswith("."): return
-	phenny.send("module.bot.store", "SET DEFAULT", {'name': "module.store.last", 'value': 0})
-	phenny.send("module.bot.store", "SET DEFAULT", {'name': "module.store.rank", 'value': 0})
-	phenny.send("module.bot.store", "SET DEFAULT", {'name': "module.store.said", 'value': ''})
-	phenny.send("module.bot.store", "SET DEFAULT", {'name': "module.store.cooldown", 'value': 0})
+def macfagstatus(shana, event):
+	if not event.group(0).startswith("."): return
+	shana.send("module.bot.store", "SET DEFAULT", {'name': "module.store.last", 'value': 0})
+	shana.send("module.bot.store", "SET DEFAULT", {'name': "module.store.rank", 'value': 0})
+	shana.send("module.bot.store", "SET DEFAULT", {'name': "module.store.said", 'value': ''})
+	shana.send("module.bot.store", "SET DEFAULT", {'name': "module.store.cooldown", 'value': 0})
 	
 	for i in range(4):
-		l = phenny.recv(subject=["VARIABLE",])
+		l = shana.recv(subject=["VARIABLE",])
 		if l.body['name'] == "module.store.last": last = l.body['value']
 		elif l.body['name'] == "module.store.rank": rank = l.body['value']
 		elif l.body['name'] == "module.store.said": said = l.body['value']
@@ -41,41 +41,40 @@ def f_macfagstatus(phenny, input):
 	'4H O L Y S H I T F U C K I N G T O L D', 
 	'4ONE WORD: FORCED INDICATION OF TOLD THREAD OVER']
 	not_told = ['.iosysfagstatus', '.udongefagstatus', '.elifagstatus', '.eyeohsysfagstatus', '.iodongfagstatus']
-	if input.group(0).strip() in not_told:
+	if event.group(0).strip() in not_told:
 		if status == 5:
-			phenny.msg(input.sender, "PENDING...")
+			shana.msg(event.sender, "PENDING...")
 			time.sleep(5)
-			phenny.msg(input.sender, "3NOT TOLD")
+			shana.msg(event.sender, "3NOT TOLD")
 		else:
-			phenny.say('NOT TOLD')
+			shana.say('NOT TOLD')
 	else:
-		if time.time() - last < 30 and input.group(0).strip() == said and cooldown < time.time():
-			phenny.say(ut_told[rank])
-			phenny.send("module.bot.store", "STORE", {'name': "module.store.last", 'value': time.time()})
-			phenny.send("module.bot.store", "STORE", {'name': "module.store.rank", 'value': rank+1})
+		if time.time() - last < 30 and event.group(0).strip() == said and cooldown < time.time():
+			shana.say(ut_told[rank])
+			shana.send("module.bot.store", "STORE", {'name': "module.store.last", 'value': time.time()})
+			shana.send("module.bot.store", "STORE", {'name': "module.store.rank", 'value': rank+1})
 			if rank+1 == len(ut_told):
-				phenny.send("module.bot.store", "STORE", {'name': "module.store.cooldown", 'value': time.time()+240})
-				phenny.send("module.bot.store", "STORE", {'name': "module.store.rank", 'value': 0})
+				shana.send("module.bot.store", "STORE", {'name': "module.store.cooldown", 'value': time.time()+240})
+				shana.send("module.bot.store", "STORE", {'name': "module.store.rank", 'value': 0})
 			return
 		elif not cooldown < time.time():
-			phenny.say("Told-o-meter cooling down")
+			shana.say("Told-o-meter cooling down")
 			return
 		else:
-			phenny.send("module.bot.store", "STORE", {'name': "module.store.last", 'value': time.time()})
-			phenny.send("module.bot.store", "STORE", {'name': "module.store.rank", 'value': 0})
-			phenny.send("module.bot.store", "STORE", {'name': "module.store.said", 'value': input.group(0).strip()})
+			shana.send("module.bot.store", "STORE", {'name': "module.store.last", 'value': time.time()})
+			shana.send("module.bot.store", "STORE", {'name': "module.store.rank", 'value': 0})
+			shana.send("module.bot.store", "STORE", {'name': "module.store.said", 'value': event.group(0).strip()})
 		
 		if status == 5:
-			phenny.msg(input.sender, "PENDING...")
+			shana.msg(event.sender, "PENDING...")
 			time.sleep(5)
-			phenny.msg(input.sender, "4TOLD")
-		elif status == 6 and input.group(0) == '.macfagstatus':
-			phenny.msg(input.sender, "PENDING...")
+			shana.msg(event.sender, "4TOLD")
+		elif status == 6 and event.group(0) == '.macfagstatus':
+			shana.msg(event.sender, "PENDING...")
 			time.sleep(5)
-			phenny.msg(input.sender, "SIGNAL LOST")
+			shana.msg(event.sender, "SIGNAL LOST")
 		else:
-			phenny.say('4TOLD')
+			shana.say('4TOLD')
 
-f_macfagstatus.name = 'macfagstatus'
-f_macfagstatus.commands = ['\S*fagstatus']
-f_macfagstatus.priority = 'low'
+macfagstatus.name = 'macfagstatus'
+macfagstatus.commands = ['\S*fagstatus']
