@@ -1,86 +1,60 @@
 #!/usr/bin/python
-import random, re, enchant
+import random, re
 
-def f_quote(phenny, input):
-	if not input.sender.startswith("#"): return
-	if not input.group(2):
-		quote_file = open("modules/quotes.db", 'r')
-		full_quotes = quote_file.readlines()
-		quote_file.close()
-
-		qot = random.randint(0, len(full_quotes)-1)
-		say_quote = full_quotes[qot]
-
-		phenny.say("#%s" % say_quote.replace('JxcelDolghmQ', 'jynx'))
+def quote(shana, event):
+	if not event.sender.startswith("#"): return
+	quote_re = re.compile('([0-9]+) <(.*?)> (.*)')
+	
+	quote_file = open("modules/quotes.db", 'r')
+	full_quotes = quote_file.readlines()
+	quote_file.close()
+	
+	if not event.group(2):
+		shana.say("#%s" % full_quotes[random.randint(0, len(full_quotes)-1)].strip())
 		return
-	else:
-		command, split, args = input.group(2).partition(' ')
 
-		quote_file = open("modules/quotes.db", 'r')
-		full_quotes = quote_file.readlines()
-		quote_file.close()
+	command, split, args = event.group(2).partition(' ')
+	quotes = [quote_re.match(quote).groups() for quote in full_quotes]
 
 	if command == 'add':
-		if input.group(2).find(": ") == -1:
-			phenny.say("Name or colon needed  '.quote add nerd: quote'")
+		if event.group(2).find(": ") == -1:
+			shana.say("Name or colon needed  '.quote add nerd: quote'")
 			return
-		for quote in full_quotes:
-			if "<"+args.partition(': ')[0].replace('JxcelDolghmQ', 'jynx')+"> "+args.partition(': ')[2]+'\n' in quote.partition(" ")[2]:
-				phenny.say("Quote already exists")
+		nick, new_q = args.split(': ', 1)
+		for quote in [q[2] for q in quotes if q[1] == nick]:
+			if new_q == quote:
+				shana.say("Quote already exists")
 				return
-		number = int(full_quotes[-1].partition(" ")[0])+1
+		number = int(quotes[-1][0])+1
 
 		quote_file = open("modules/quotes.db", 'a')
-		quote_file.write("%s <%s> %s\n" % (number, args.partition(': ')[0].replace('JxcelDolghmQ', 'jynx'), args.partition(": ")[2]))
+		quote_file.write("%d <%s> %s\n" % (number, nick, new_q))
 		quote_file.close()
 
-		phenny.reply("quote added (#%s)" % number)
-
-	elif command == 'del':
-		if not input.admin: return
-		try:
-			iarg = int(args)
-			for quote in full_quotes:
-				if int(quote.partition(" ")[0]) == iarg:
-					full_quotes.pop(full_quotes.index(quote))
-					phenny.say("Quote %s removed." % iarg)
-					return
-			phenny.say("Quote %s doesn't exist" % iarg)
-			return
-		except:
-			phenny.say(".quote del <quote number>")
-			return
-		
-		quote_file = open("modules/quotes.db", 'w')
-		quote_file.writelines(quotes)
-		quote_file.close()
-		phenny.say(str(records_gone)+" quote(s) removed.")
+		shana.reply("quote added (#%s)" % number)
 	
 	elif command == 'latest':
-		phenny.say('#%s' % full_quotes[-1])
-
+		shana.say('#%s' % full_quotes[-1].strip())
+	elif command == 'total':
+		matches = len([quote for quote in quotes if quote[1] == args])
+		shana.say("I have %d total quotes by %s" % (matches, args))
 	else:
 		try:
 			iarg = int(command)
-			for quote in full_quotes:
-				if int(quote.partition(" ")[0]) == iarg:
-					phenny.say("#%s" % quote)
+			for quote in quotes:
+				if int(quote[0]) == iarg:
+					shana.say("#%d <%s> %s" % (iarg, quote[1], quote[2].strip()))
 					return
-			phenny.say("Quote %s doesn't exist" % iarg)
+			shana.say("Quote %d doesn't exist" % iarg)
 		except:
-			pick_list = []
-			for line in full_quotes:
-				if line.partition('> ')[0].partition('<')[2] == input.group(2).strip():
-					pick_list.append(line)
+			pick_list = [quote for quote in quotes if quote[1] == event.group(2).strip()]
 			if len(pick_list) == 0:
-				phenny.say("No quotes by that name")
+				shana.say("No quotes by that name")
 				return
 			else:
-				qot = random.randint(0, len(pick_list)-1)
-				say_quote = pick_list[qot]
+				q = pick_list[random.randint(0, len(pick_list)-1)]
 
-			phenny.say("#%s" % say_quote)
+			shana.say("#%s <%s> %s" % (q[0], q[1], q[2].strip()))
 
-f_quote.name = 'quote'
-f_quote.commands = (['quote'])
-f_quote.priority = 'low'
+quote.name = 'quote'
+quote.commands = ['quote']
