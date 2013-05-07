@@ -1,8 +1,5 @@
 #!/usr/bin/env python
-import time
+def syn(shana, event):
+	shana.say("SMACK")
 
-def f_syn(phenny, input):
-	phenny.say("SMACK")
-
-f_syn.rule = r'SYN'
-f_syn.priority = 'low'
+syn.rule = r'SYN'
