@@ -1,19 +1,17 @@
 #!/usr/bin/python
-import time, calendar
+import time
 
-def f_convert(phenny, input):
-	args = input.group(2)
+def convert(shana, event):
+	args = event.group(2)
 	if not args:
-		phenny.reply(time.asctime(time.gmtime())+" UTC")
+		shana.reply("%s UTC %d UNIX" % (time.asctime(time.gmtime()), int(time.time())))
 		return
 	try:
 		seconds = int(args)
 		utc = time.gmtime(seconds)
-		phenny.reply(time.asctime(utc)+" UTC")
-	except:	
-		phenny.say(".time [UNIX Timestamp]")
-		
+		shana.reply(time.asctime(utc)+" UTC")
+	except:
+		shana.say(".time [UNIX Timestamp]")
 
-f_convert.name = 'time'
-f_convert.commands = (['time'])
-f_convert.priority = 'low'
+convert.name = 'time'
+convert.commands = ['time']
