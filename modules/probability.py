@@ -1,7 +1,7 @@
 import random, re
 
-def rps(shana, input):
-	if not input.group(2):
+def rps(shana, event):
+	if not event.group(2):
 		return
 	throws = {'r': 'rock', 'rock': 'rock', 'p': 'paper', 'paper': 'paper', 's': 'scissors', 'scissors': 'scissors'}
 	values = {1: 'rock', 2: 'paper', 3: 'scissors'}
@@ -9,18 +9,18 @@ def rps(shana, input):
 		   'paper': {'rock': 'win', 'paper': 'tie', 'scissors': 'lose'},
 		   'scissors': {'rock': 'lose', 'paper': 'win', 'scissors': 'tie'}}
 
-	throw = input.group(2).split(' ')[0].lower()
+	throw = event.group(2).split(' ')[0].lower()
 	if throw in throws.keys():
 		counter = random.randint(1, 3)
 		shana.say('You throw %s, I throw %s. You %s!' % (throws[throw], values[counter], results[throws[throw]][values[counter]]))
 	
 rps.commands = ['rps', 'janken', 'roshambo']
 
-def flip(shana, input):
-	if not input.group(2):
+def flip(shana, event):
+	if not event.group(2):
 		coins = 1
-	elif input.group(2):
-		flip_text = re.search('[0-9]+', input.group(2))
+	elif event.group(2):
+		flip_text = re.search('[0-9]+', event.group(2))
 		if not flip_text: return
 		coins = int(flip_text.group(0))
 	else:
@@ -46,8 +46,8 @@ def flip(shana, input):
 flip.commands = ['flip']
 
 
-def roll(shana, input):
-	roll_text = re.search('([0-9]+)d([0-9]+)([-+][0-9]+)?', input.group(2))
+def roll(shana, event):
+	roll_text = re.search('([0-9]+)d([0-9]+)([-+][0-9]+)?', event.group(2))
 	if not roll_text: return
 	roll = list(roll_text.groups())
 	
@@ -73,9 +73,9 @@ def roll(shana, input):
 	
 	if dice == 1:
 		shana.say("Roll %s: %d %s" %
-			(input.group(2).strip(), subtotal, {True: '', False: '-> %d' % total}[subtotal == total]) )
+			(event.group(2).strip(), subtotal, {True: '', False: '-> %d' % total}[subtotal == total]) )
 	else:
 		shana.say("Roll %s: [%s] = %d %s" %
-			(input.group(2).strip(), ' ,'.join(map(str, outcome)), subtotal, {True: '', False: '-> %d' % total}[subtotal == total]) )
+			(event.group(2).strip(), ' ,'.join(map(str, outcome)), subtotal, {True: '', False: '-> %d' % total}[subtotal == total]) )
 roll.name = 'roll'
 roll.commands = ['roll']
