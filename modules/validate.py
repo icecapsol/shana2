@@ -23,10 +23,10 @@ def val(phenny, input):
    if isinstance(info, list): 
       return phenny.say('Got HTTP response %s' % info[1])
 
-   if info.has_key('X-W3C-Validator-Status'): 
+   if 'X-W3C-Validator-Status' in info.keys(): 
       result += str(info['X-W3C-Validator-Status'])
       if info['X-W3C-Validator-Status'] != 'Valid': 
-         if info.has_key('X-W3C-Validator-Errors'): 
+         if 'X-W3C-Validator-Errors' in info.keys(): 
             n = int(info['X-W3C-Validator-Errors'].split(' ')[0])
             if n != 1: 
                result += ' (%s errors)' % n
