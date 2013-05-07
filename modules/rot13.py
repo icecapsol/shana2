@@ -1,25 +1,20 @@
 #!/usr/bin/env python
-import time, codecs
+import codecs
 
-def f_rot13(phenny, input):
-	import codecs
+def rot13(shana, event):
 	enc = codecs.getencoder( "rot-13" )
-	try: phenny.say(enc(input.group(2))[0])
-	except: phenny.say("non ASCII character found")
+	try: shana.say(enc(event.group(2))[0])
+	except: shana.say("non ASCII character found")
 	
-f_rot13.name = 'rot13'
-f_rot13.commands = ['rot13']
-f_rot13.priority = 'low'
+rot13.name = 'rot13'
+rot13.commands = ['rot13']
 
-def f_rot47(phenny, input):
-	#try:
+def rot47(shana, event):
 	new = ""
-	for loop in range(len(input.group(2))):
-		if input.group(2)[loop] == " ": new += " "
-		else: new += chr(((ord(input.group(2)[loop]) - 33 + 47) % 94) + 33)
-	phenny.say(new)
-	#except: phenny.say("non ASCII character found")
+	for loop in range(len(event.group(2))):
+		if event.group(2)[loop] == " ": new += " "
+		else: new += chr(((ord(event.group(2)[loop]) - 33 + 47) % 94) + 33)
+	shana.say(new)
 	
-f_rot47.name = 'rot47'
-f_rot47.commands = ['rot47']
-f_rot47.priority = 'low'
+rot47.name = 'rot47'
+rot47.commands = ['rot47']
