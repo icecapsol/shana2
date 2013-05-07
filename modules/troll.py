@@ -1,7 +1,7 @@
 #!/usr/bin/python
 import random
 
-def f_troll(phenny, input):
+def troll(shana, event):
 	troll_rating = random.randint(0, 9)
 	trolls = ["\\[L........4H]",
 	"[L\\.......4H]",
@@ -13,8 +13,8 @@ def f_troll(phenny, input):
 	"[L....../.4H]",
 	"[L......./4H]",
 	"[L........4H]/  Would rage again"]
-	phenny.say(trolls[troll_rating])
+	shana.say(trolls[troll_rating])
 
-f_troll.name = 'troll'
-f_troll.commands = (['troll'])
-f_troll.priority = 'low'
+troll.name = 'troll'
+troll.commands = (['troll'])
+troll.priority = 'low'
