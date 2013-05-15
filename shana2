@@ -10,7 +10,7 @@ Licensed under the Eiffel Forum License 2.
 http://inamidst.com/phenny/
 """
 
-import sys, os, re, time, socket, asyncore, asynchat, imp, threading, datetime, traceback, getopt
+import sys, os, re, time, socket, asyncore, asynchat, imp, threading, datetime, traceback, getopt, signal
 import yaml
 from multiprocessing import Process, Pipe, Queue
 
@@ -57,7 +57,7 @@ class Communicator():
 			self.initiate_connect()
 			try: asyncore.loop()
 			except KeyboardInterrupt: 
-				sys.exit()
+				sys.exit(0)
 	class Speaker():
 		def __init__(self, inbox, comm):
 			self.inbox = inbox
@@ -79,6 +79,10 @@ class Communicator():
 	def __init__(self, inbox, outbox, config):
 		self.listener = Communicator.Listener(outbox, config)
 		self.speaker = Communicator.Speaker(inbox, self.listener)
+		signal.signal(signal.SIGINT, self.die)
+		
+	def die(self, sig, frame):
+		sys.exit(0)
 	
 	def run(self):
 		t = threading.Thread(target=self.listener.run, args=())
@@ -91,6 +95,10 @@ class Parser():
 		self.inbox = inbox
 		self.outbox = outbox
 		self.source = re.compile(r'([^!]*)!?([^@]*)@?(.*)')
+		signal.signal(signal.SIGINT, self.die)
+		
+	def die(self, sig, frame):
+		sys.exit(0)
 		
 	def send(self, to, subject, body):
 		l = Letter(to, subject, body, "self.parser")
@@ -136,6 +144,10 @@ class Generator():
 		self.config = config
 		self.inbox = inbox
 		self.outbox = outbox
+		signal.signal(signal.SIGINT, self.die)
+		
+	def die(self, sig, frame):
+		sys.exit(0)
 	
 	def send(self, to, subject, body):
 		l = Letter(to, subject, body, "self.generator")
@@ -184,9 +196,13 @@ class Launcher():
 		self.outbox = Queue(16386) # PO's inbox
 		self.config = config
 		self.running = {}
+		signal.signal(signal.SIGINT, self.die)
 		self.load_modules()
 		self.startup()
 		self.run()
+		
+	def die(self, sig, frame):
+		sys.exit(0)
 	
 	def load_module(self, fn):
 		mod = Module(fn, dict(list(self.config["Modules"].items()) + list(self.config["Global"].items()) + list(self.config.get("Module.%s" % fn.rpartition(".")[0], {}).items())))
@@ -359,6 +375,10 @@ class Postoffice():
 		self.config = config
 		self.inbox = queue
 		self.boxes = {}
+		signal.signal(signal.SIGINT, self.die)
+		
+	def die(self, sig, frame):
+		sys.exit(0)
 	
 	def mkbox(self, box_name, queue):
 		name, box = self.best_match(box_name.split("."), self.boxes, 0)
