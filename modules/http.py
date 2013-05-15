@@ -1,11 +1,14 @@
 ﻿#!/usr/bin/python
 import urllib.request
 from urllib.request import urlopen
-import re, time, datetime
+import re, time, datetime, subprocess
 from bs4 import BeautifulSoup as BS
-import _identify
 
 def http(shana, event):
+	def identify(format, chunk):
+		pid = subprocess.Popen(['identify', '-format', '"%s"' % format, '-'], executable='identify', stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+		out, err = pid.communicate(chunk)
+		return out.decode('utf-8').replace('"', '')
 	if event.bytes.startswith(".un404"): return
 	if not event.sender.startswith("#") and not event.admin: return
 	
