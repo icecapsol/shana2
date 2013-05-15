@@ -140,7 +140,7 @@ logger.service = True
 logger.wake_on_letter = True
 
 def version(shana, event):
-	shana.say("Shana2 Version 0.1 Beta")
+	shana.say("Shana2 Version %s" % shana.conf.get('version', '???'))
 version.commands = ['version']
 
 def reload_module(shana, event):

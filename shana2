@@ -20,7 +20,6 @@ class Communicator():
 			asynchat.async_chat.__init__(self)
 			self.set_terminator(b'\n')
 			self.buffer = b''
-			self.name = data['name']
 			self.outbox = box
 			self.host = data['host']
 			self.port = data['port']
@@ -205,7 +204,7 @@ class Launcher():
 		sys.exit(0)
 	
 	def load_module(self, fn):
-		mod = Module(fn, dict(list(self.config["Modules"].items()) + list(self.config["Global"].items()) + list(self.config.get("Module.%s" % fn.rpartition(".")[0], {}).items())))
+		mod = Module(fn, dict(list(self.config.get("Modules", {}).items()) + list(self.config["Global"].items()) + list(self.config.get("Module.%s" % fn.rpartition(".")[0], {}).items())))
 		for m in self.modules:
 			if m.name == mod.name:
 				self.modules.remove(m)
@@ -232,7 +231,7 @@ class Launcher():
 	
 	def startup(self):
 		# Post office
-		self.pobox = Postoffice(self.outbox, dict(list(self.config["Post Office"].items()) + list(self.config["Global"].items())))
+		self.pobox = Postoffice(self.outbox, dict(list(self.config.get("Post Office", {}).items()) + list(self.config["Global"].items())))
 		p = Process(target=self.pobox.run, args=())
 		p.start()
 		self.send("self.post office", "Add", {'name': "self.launcher.%s" % p.pid, "queue": self.box_r})
@@ -241,7 +240,7 @@ class Launcher():
 		# generator
 		self.log("Starting generator", 5)
 		gbox = Pipe()
-		self.generator = Generator(gbox[0], self.outbox, dict(list(self.config['Generator'].items()) + list(self.config["Global"].items())))
+		self.generator = Generator(gbox[0], self.outbox, dict(list(self.config.get('Generator', {}).items()) + list(self.config["Global"].items())))
 		p = Process(target=self.generator.run, args=())
 		p.start()
 		self.send("self.post office", "Add", {'name': "self.generator.%s" % p.pid, "queue": gbox[1]})
@@ -249,7 +248,7 @@ class Launcher():
 		# parser
 		self.log("Starting parser", 5)
 		pbox = Pipe()
-		self.parser = Parser(pbox[0], self.outbox, dict(list(self.config['Parser'].items()) + list(self.config["Global"].items())))
+		self.parser = Parser(pbox[0], self.outbox, dict(list(self.config.get('Parser', {}).items()) + list(self.config["Global"].items())))
 		p = Process(target=self.parser.run, args=())
 		p.start()
 		self.send("self.post office", "Add", {'name': "self.parser.%s" % p.pid, "queue": pbox[1]})
@@ -257,7 +256,7 @@ class Launcher():
 		# listener
 		self.log("Starting communicator", 5)
 		lbox = Pipe()
-		self.communicator = Communicator(lbox[0], self.outbox, dict(list(self.config['Communicator'].items()) + list(self.config["Global"].items())))
+		self.communicator = Communicator(lbox[0], self.outbox, dict(list(self.config.get('Communicator', {}).items()) + list(self.config["Global"].items())))
 		p = Process(target=self.communicator.run, args=())
 		p.start()
 		self.send("self.post office", "Add", {'name': "self.communicator.%s" % p.pid, "queue": lbox[1]})
@@ -305,6 +304,7 @@ class Launcher():
 				try: mclass, mname, fname = letter.body['letter'].to_f[:3]
 				except Exception as e:
 					self.log("Exception interpeting a WAKE event %s" % repr(e), 2)
+					self.log("Event was sent for %s" % letter.body['letter'].to, 2)
 					continue
 				if not mclass == "module":
 					self.send("self.post office", "WAKE FAIL", {'letter': letter.body['letter']})
