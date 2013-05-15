@@ -28,10 +28,13 @@ class Communicator():
 		def send_letter(self, to, subject, body):
 			l = Letter(to, subject, body, "self.communicator")
 			self.outbox.put(l)
-	
+		
+		def log(self, line, level):
+			self.send_letter("module.bot.logger", "LOG", {'module': 'Speaker', 'time': int(time.time()), 'text': line, 'numeric': level})
+		
 		def initiate_connect(self): 
 			self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
-			self.send_letter("module.bot.logger", "LOG", {'text': "Listener: Connecting to %s %s" % (self.host, self.port), 'numeric': 6})
+			self.log("Connecting to %s %s" % (self.host, self.port), 6)
 			self.connect((self.host, int(self.port)))
 		def handle_connect(self): 
 			self.send_letter("module.irc.login", "CONNECT", {'message': "new connection"})
@@ -60,12 +63,17 @@ class Communicator():
 			self.inbox = inbox
 			self.comm = comm
 		
+		def log(self, line, level):
+			self.send("module.bot.logger", "LOG", {'module': 'Speaker', 'time': int(time.time()), 'text': line, 'numeric': level})
+		
 		def run(self):
 			while True:
 				letter = self.inbox.recv()
 				if letter.subject =="NEW IRC OUTPUT":
-					self.comm.push(letter.body['message'].encode('utf-8'))
-					#print(letter.body['message'].encode('utf-8'))
+					try: self.comm.push(letter.body['message'].encode('utf-8'))
+					except:
+						print(traceback.format_exc())
+						print(letter.body['message'])
 					time.sleep(0.1)
 	
 	def __init__(self, inbox, outbox, config):
@@ -88,7 +96,7 @@ class Parser():
 		l = Letter(to, subject, body, "self.parser")
 		self.outbox.put(l)
 	def log(self, line, level):
-		self.send("module.bot.logger", "LOG", {'text': "Parser: %s" % line, 'numeric': level})
+		self.send("module.bot.logger", "LOG", {'module': 'Parser', 'time': int(time.time()), 'text': line, 'numeric': level})
 		
 	def run(self):
 		while True:
@@ -133,12 +141,17 @@ class Generator():
 		l = Letter(to, subject, body, "self.generator")
 		self.outbox.put(l)
 	
+	def log(self, line, level):
+		self.send("module.bot.logger", "LOG", {'module': 'Generator', 'time': int(time.time()), 'text': line, 'numeric': level})
+	
 	def run(self):
 		while True:
 			l = self.inbox.recv()
 			if l.subject == "NEW IRC DATA":
 				data = l.body['data']
-			else: continue
+			else:
+				self.log("Got Erroneous letter. Subject: '%s'" % l.subject, 5)				
+				continue
 			event = Event(data.args[0], data, data.args[0], data.args[1], data.args[2:], self.config)
 			self.send("self.launcher", "NEW EVENT", {'event': event})
 
@@ -165,7 +178,6 @@ class Event():
 			self.username = 'nobody'
 		self.ugroups = config['passwd'].get(self.username, ['nobody']) # 0 groups, 1 password, 2 home
 
-
 class Launcher():
 	def __init__(self, config):
 		self.inbox, self.box_r = Pipe()
@@ -177,7 +189,6 @@ class Launcher():
 		self.run()
 	
 	def load_module(self, fn):
-		self.log("loading module %s" % fn.rpartition(".")[0], 7)
 		mod = Module(fn, dict(list(self.config["Modules"].items()) + list(self.config["Global"].items()) + list(self.config.get("Module.%s" % fn.rpartition(".")[0], {}).items())))
 		for m in self.modules:
 			if m.name == mod.name:
@@ -186,11 +197,14 @@ class Launcher():
 
 	def load_modules(self):
 		self.modules = []
+		exceptions = []
 		for fn in [fn for fn in os.listdir("modules") if os.path.isfile("modules/"+fn) and not fn.startswith("_") and fn.endswith(".py")]:
 			try: self.load_module(fn)
 			except:
 				trace = traceback.format_exc()
 				print(trace)
+				exceptions.append(fn)
+		self.log("Loaded %d modules (%d errors)" % (len(self.modules), len(exceptions)), 5)
 	
 	def launch_module(self, mod, func, event=None):
 		q = Pipe()
@@ -243,7 +257,7 @@ class Launcher():
 		self.outbox.put(l)
 	
 	def log(self, line, level):
-		self.send("module.bot.logger", "LOG", {'text': "Launcher: %s" % line, 'numeric': level})
+		self.send("module.bot.logger", "LOG", {'module': 'Launcher', 'time': int(time.time()), 'text': line, 'numeric': level})
 	
 	def shutdown(self, args):
 		pass
@@ -274,7 +288,7 @@ class Launcher():
 			elif letter.subject == "WAKE":
 				try: mclass, mname, fname = letter.body['letter'].to_f[:3]
 				except Exception as e:
-					self.log("Exception %s" % repr(e), 2)
+					self.log("Exception interpeting a WAKE event %s" % repr(e), 2)
 					continue
 				if not mclass == "module":
 					self.send("self.post office", "WAKE FAIL", {'letter': letter.body['letter']})
@@ -284,11 +298,13 @@ class Launcher():
 						for func in mod.functions:
 							if func.name == fname:
 								full_name = "module.%s.%s" % (mod.name, func.name)
-								if full_name in self.running.keys() and len(self.running.values()) > 0:
+								if full_name in self.running.keys() and len(self.running[full_name]) > 0:
 									self.log("WAKE event for module already awake sent to %s" % full_name, 7)
+									self.outbox.put(Letter(letter.body['letter'].to, letter.body['letter'].subject, letter.body["letter"].body, letter.body["letter"].sender))
 									break
 								if not func.wake_on_letter:
 									self.send("self.post office", "WAKE FAIL", {'letter': letter.body['letter']})
+									self.log("Attempt to wake %s denied because function doesn't allow wakes" % letter.body['letter'].to, 4)
 									break
 								else:
 									p = self.launch_module(mod, func)
@@ -312,7 +328,7 @@ class Launcher():
 					if mod.name == full_name[0]:
 						for func in mod.functions:
 							if func.name == full_name:
-								self.launch_module(mod, func)
+								self.launch_module(mod, func, letter.body.setdefault('args', {}))
 			elif letter.subject == "LIST MODULES":
 				mods = {}
 				for mod in self.modules:
@@ -523,7 +539,7 @@ class Module():
 			l = Letter(to, subject, body, self.name)
 			self.outbox.put(l)
 		def log(self, line, level):
-			self.send("module.bot.logger", "LOG", {'text': "%s: %s" % (self.name, line), 'numeric': level})
+			self.send("module.bot.logger", "LOG", {'module': self.name, 'time': int(time.time()), 'text': line, 'numeric': level})
 		def recv(self, subject=None, sender=None, block=True):
 			while self.inbox.poll():
 				self.letters.append(self.inbox.recv())
@@ -615,11 +631,12 @@ class Module():
 				input.match = None
 				input.group = None
 				input.groups = None
-		
 
 		#for lim, val in func.limits.items():
 			#resource.setrlimit(lim, val)
 		try: func.func(bot, input)
+		except KeyboardInterrupt:
+			pass
 		except:
 			trace = traceback.format_exc()
 			print(trace)
@@ -631,8 +648,9 @@ class Module():
 					report.append(line[0].lower() + line[1:])
 					break
 			else: report.append('source unknown')
-			bot.say(report[0] + ' (' + report[1] + ')')
-		bot.send("self.post office", "Remove", {'name': "module.%s.%s" % (mod_name, func.name)})
+			#bot.say(report[0] + ' (' + report[1] + ')')
+		try: bot.send("self.post office", "Remove", {'name': "module.%s.%s" % (mod_name, func.name)})
+		except: pass
 
 conf_name = "shana2.conf"
 
