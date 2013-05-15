@@ -1,0 +1,8 @@
+*.pyc
+.spyder*
+*.txt
+*.db
+*.log
+modules/_*.py
+shana2.conf
+shana2-debug.conf
