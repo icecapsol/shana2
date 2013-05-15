@@ -426,7 +426,7 @@ class Postoffice():
 		candidates = dict([(n, i) for n, i in dlist.items() if len(n.split(".")) >= level+1 and n.split(".")[level] == name[level]])
 		if level == len(name)-1:
 			if len(candidates) > 0:
-				return (tuple(candidates.keys())[0], candidates[tuple(candidates.keys())[0]])
+				return (tuple(candidates.keys())[0], tuple(candidates.values()))
 			else:
 				return (None, None)
 		elif level < len(name)-1 and len(candidates) > 0:
@@ -442,14 +442,17 @@ class Postoffice():
 			if letter.to == "self.post office":
 				self.process(letter)
 				continue
-			name, box = self.best_match(letter.to_f, self.boxes, 0)
-			if name: box.send(letter)
+			name, boxes = self.best_match(letter.to_f, self.boxes, 0)
+			if name:
+				for box in boxes:
+					box.send(letter)
 			else: # check if the module will wake up
-				name, box = self.best_match(["self", "launcher"], self.boxes, 0)
+				name, boxes = self.best_match(["self", "launcher"], self.boxes, 0)
 				if not name:
 					self.inbox.put(letter)
+					time.sleep(0.01)
 					continue
-				box.send(Letter("self.launcher", "WAKE", {"letter": letter}))
+				boxes[0].send(Letter("self.launcher", "WAKE", {"letter": letter}))
 
 class ACL():
 	def __init__(self, module):
