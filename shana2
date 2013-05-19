@@ -277,6 +277,20 @@ class Launcher():
 	def shutdown(self, args):
 		pass
 	
+	def get_module_function(self, name):
+		if isinstance(name, list) or isinstance(name, tuple):
+			try: module_class, module_name, function_name = name
+			except: return (None, None)
+		else:
+			try: module_class, module_name, function_name = name.split(".")
+			except: return (None, None)
+		try:
+			module = [mod for mod in self.modules if mod.name == module_name][0]
+			function = [func for func in module.functions if func.name == function_name]
+			return (module, function)
+		except:
+			return (None, None)
+	
 	def run(self):
 		while True:
 			letter = self.inbox.recv()
@@ -301,32 +315,24 @@ class Launcher():
 							self.running.setdefault("module.%s.%s" % (m.name, func.name), [])
 							self.running["module.%s.%s" % (m.name, func.name)].append({'pid': p.pid, 'proc': p})
 			elif letter.subject == "WAKE":
-				try: mclass, mname, fname = letter.body['letter'].to_f[:3]
-				except Exception as e:
-					self.log("Exception interpeting a WAKE event %s" % repr(e), 2)
-					self.log("Event was sent for %s" % letter.body['letter'].to, 2)
-					continue
-				if not mclass == "module":
+				mod, func = self.get_module_function(letter.body['letter'].to_f[:3])
+				if not func:
 					self.send("self.post office", "WAKE FAIL", {'letter': letter.body['letter']})
-					continue
-				for mod in self.modules:
-					if mod.name == mname:
-						for func in mod.functions:
-							if func.name == fname:
-								full_name = "module.%s.%s" % (mod.name, func.name)
-								if full_name in self.running.keys() and len(self.running[full_name]) > 0:
-									self.log("WAKE event for module already awake sent to %s" % full_name, 7)
-									self.outbox.put(Letter(letter.body['letter'].to, letter.body['letter'].subject, letter.body["letter"].body, letter.body["letter"].sender))
-									break
-								if not func.wake_on_letter:
-									self.send("self.post office", "WAKE FAIL", {'letter': letter.body['letter']})
-									self.log("Attempt to wake %s denied because function doesn't allow wakes" % letter.body['letter'].to, 4)
-									break
-								else:
-									p = self.launch_module(mod, func)
-									self.running.setdefault("module.%s.%s" % (mod.name, func.name), [])
-									self.running["module.%s.%s" % (mod.name, func.name)].append({'pid': p.pid, 'proc': p})
-									self.outbox.put(Letter(letter.body['letter'].to, letter.body['letter'].subject, letter.body["letter"].body, letter.body["letter"].sender))
+					self.log("Badly formatted WAKE event %s" % letter.body['letter'].to, 2)
+				full_name = letter.body['letter'].to
+				if full_name in self.running.keys() and len(self.running[full_name]) > 0:
+					self.log("WAKE event for module already awake sent to %s" % full_name, 7)
+					self.outbox.put(Letter(letter.body['letter'].to, letter.body['letter'].subject, letter.body["letter"].body, letter.body["letter"].sender))
+
+				if not func.wake_on_letter:
+					self.send("self.post office", "WAKE FAIL", {'letter': letter.body['letter']})
+					self.log("Attempt to wake %s denied because function doesn't allow wakes" % letter.body['letter'].to, 4)
+
+				else:
+					p = self.launch_module(mod, func)
+					self.running.setdefault("module.%s.%s" % (mod.name, func.name), [])
+					self.running["module.%s.%s" % (mod.name, func.name)].append({'pid': p.pid, 'proc': p})
+					self.outbox.put(Letter(letter.body['letter'].to, letter.body['letter'].subject, letter.body["letter"].body, letter.body["letter"].sender))
 
 			elif letter.subject == "RELOAD MODULE":
 				for name in letter.body['names']:
@@ -340,11 +346,10 @@ class Launcher():
 						self.send("self.communicator", "NEW IRC OUTPUT", {'message': "PRIVMSG %s :%s: Error loading module %s: file doesn't exist\r\n" % (letter.body['sender'], letter.body['nick'], name+".py")})
 			elif letter.subject == "LAUNCH MODULE":
 				full_name = letter.body['name'].split(".")[1:]
-				for mod in self.modules:
-					if mod.name == full_name[0]:
-						for func in mod.functions:
-							if func.name == full_name:
-								self.launch_module(mod, func, letter.body.setdefault('args', {}))
+				full_name.insert("module", 0)
+				mod, func = self.get_module_function(full_name)
+				if func: self.launch_module(mod, func, letter.body.setdefault('args', {}))
+				else: self.log("Request to launch module '%s' from %s failed: No such module or function" % ('.'.join(full_name), letter.sender), 2)
 			elif letter.subject == "LIST MODULES":
 				mods = {}
 				for mod in self.modules:
