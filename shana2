@@ -535,19 +535,19 @@ class Module():
 					c.append(regexp)
 				self.commands = c
 	class Bot():
-		def __init__(self, mail, input, name, pid, conf):
+		def __init__(self, mail, event, name, pid, conf):
 			self.inbox = mail[0]
 			self.outbox = mail[1]
 			self.letters = []
 			self.name = '.'.join(name)
-			self.input = input
+			self.input = event
 			self.pid = pid
 			self.conf = conf
 		def write(self, args, text=None):
-			def safe(input): 
-				input = input.replace('\n', '')
-				input = input.replace('\r', '')
-				return input
+			def safe(data): 
+				data = data.replace('\n', '')
+				data = data.replace('\r', '')
+				return data
 			args = [safe(arg) for arg in args]
 			if text is not None: 
 				text = safe(text)
@@ -630,39 +630,39 @@ class Module():
 		if acl['mode'][2] or (acl['group'] in event.ugroups and acl['mode'][1]) or (event.username == acl['owner'] and acl['mode'][0]):
 			return True
 
-	def start(self, input, func, mail, mod_name):
+	def start(self, event, func, mail, mod_name):
 		if hasattr(os, 'getppid'):
 			pid = os.getppid()
 		else:
 			pid = os.getpid()
-		bot = Module.Bot(mail, input, ["module", self.name, func.name], pid, self.config)
-		if input:
+		bot = Module.Bot(mail, event, ["module", self.name, func.name], pid, self.config)
+		if event and hasattr(event, "bytes"):
 			if func.commands:
 				for command in func.commands:
-					match = command.match(input.bytes)
+					match = command.match(event.bytes)
 					if match:
-						input.match = match
-						input.group = match.group
-						input.groups = match.groups
+						event.match = match
+						event.group = match.group
+						event.groups = match.groups
 			elif func.rule:
 				for rule in func.rule:
-					match = rule.match(input.bytes)
+					match = rule.match(event.bytes)
 					if match:
-						input.match = match
-						input.group = match.group
-						input.groups = match.groups
-					search = rule.search(input.bytes)
+						event.match = match
+						event.group = match.group
+						event.groups = match.groups
+					search = rule.search(event.bytes)
 					if search:
-						input.search = search
-						input.searches = rule.findall(input.bytes)
+						event.search = search
+						event.searches = rule.findall(event.bytes)
 			else:
-				input.match = None
-				input.group = None
-				input.groups = None
+				event.match = None
+				event.group = None
+				event.groups = None
 
 		#for lim, val in func.limits.items():
 			#resource.setrlimit(lim, val)
-		try: func.func(bot, input)
+		try: func.func(bot, event)
 		except KeyboardInterrupt:
 			pass
 		except:
