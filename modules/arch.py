@@ -16,7 +16,7 @@ def arch(shana, event):
 		elif arg.lower() in repos.keys():
 			prepo = repos[arg]
 	
-	url = "https://www.archlinux.org/packages/?sort=%s&arch=%s&q=%s&maintainer=&flagged=" % (prepo, parch, package)
+	url = "https://www.archlinux.org/packages/?sort=%s&%sq=%s&maintainer=&flagged=" % (prepo, parch, package)
 	soup = BS(urlopen(url).read())
 	
 	try: results = int(soup.find_all('p')[1].get_text().split()[0])
