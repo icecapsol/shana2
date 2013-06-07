@@ -11,31 +11,79 @@ http://inamidst.com/phenny/
 """
 
 import sys, os, re, time, socket, asyncore, asynchat, imp, threading, datetime, traceback, getopt, signal
+import ssl, errno, select
 import yaml
 from multiprocessing import Process, Pipe, Queue
 
 class Communicator():
 	class Listener(asynchat.async_chat):
-		def __init__(self, box, data):
+		def __init__(self, box, config):
 			asynchat.async_chat.__init__(self)
 			self.set_terminator(b'\n')
 			self.buffer = b''
 			self.outbox = box
-			self.host = data['host']
-			self.port = data['port']
+			self.config = config
+			self.host = config['host']
+			self.port = config['port']
+			self.ssl = config['ssl']
+			if self.ssl:
+				self.send = self._ssl_send
+				self.recv = self._ssl_recv
+		
+		def _ssl_send(self, data):
+			try:
+				result = self.write(data)
+				return result
+			except ssl.SSLError as why:
+				if why[0] in (asyncore.EWOULDBLOCK, errno.ESRCH):
+					return 0
+				else:
+					raise ssl.SSLError(why)
+				return 0
+		
+		def _ssl_recv(self, buffer_size):
+			try:
+				data = self.read(buffer_size)
+				if not data:
+					self.handle_close()
+					return ''
+				return data
+			except ssl.SSLError as why:
+				if why[0] in (asyncore.ECONNRESET, asyncore.ENOTCONN,
+						  asyncore.ESHUTDOWN):
+					self.handle_close()
+					return ''
+				elif why[0] == errno.ENOENT:
+					return ''
+				else:
+					raise
 	
 		def send_letter(self, to, subject, body):
 			l = Letter(to, subject, body, "self.communicator")
 			self.outbox.put(l)
 		
 		def log(self, line, level):
-			self.send_letter("module.bot.logger", "LOG", {'module': 'Speaker', 'time': int(time.time()), 'text': line, 'numeric': level})
+			self.send_letter("module.bot.logger", "LOG", {'module': 'Listener', 'time': int(time.time()), 'text': line, 'numeric': level})
 		
 		def initiate_connect(self): 
 			self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
 			self.log("Connecting to %s %s" % (self.host, self.port), 6)
 			self.connect((self.host, int(self.port)))
 		def handle_connect(self): 
+			if self.ssl:
+				self.ssl_sock = ssl.wrap_socket(self.socket, do_handshake_on_connect=False)
+				self.set_socket(self.ssl_sock)
+				while True:
+					try:
+						self.socket.do_handshake()
+						break
+					except ssl.SSLError as err:
+						if err.args[0] == ssl.SSL_ERROR_WANT_READ:
+							select.select([self.socket], [], [])
+						elif err.args[0] == ssl.SSL_ERROR_WANT_WRITE:
+							select.select([], [self.socket], [])
+						else:
+							raise
 			self.send_letter("module.irc.login", "CONNECT", {'message': "new connection"})
 		def handle_close(self): 
 			self.close()
