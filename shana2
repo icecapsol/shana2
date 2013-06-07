@@ -41,9 +41,10 @@ class Communicator():
 			self.close()
 		def handle_error(self):
 			cls, value = sys.exc_info()[:2]
-			print('\n'+str(value))
-			if cls == socket.error or cls == socket.gaierror:
-				self.handle_close()
+			print('Error:\n'+str(value))
+			print(self.buffer)
+			#if cls == socket.error or cls == socket.gaierror:
+			#	self.handle_close()
 		def collect_incoming_data(self, data): 
 			self.buffer += data
 		def found_terminator(self):
@@ -71,8 +72,13 @@ class Communicator():
 				if letter.subject =="NEW IRC OUTPUT":
 					try: self.comm.push(letter.body['message'].encode('utf-8'))
 					except:
-						print(traceback.format_exc())
-						print(letter.body['message'])
+						try:
+							self.comm.push(letter.body['message'].encode('cp1252'))
+							self.log("Badly encoded characters in message:", 3)
+							self.log(letter.body['message'], 3)
+						except:
+							print(traceback.format_exc())
+							print(letter.body['message'])
 					time.sleep(0.1)
 	
 	def __init__(self, inbox, outbox, config):
@@ -286,7 +292,7 @@ class Launcher():
 			except: return (None, None)
 		try:
 			module = [mod for mod in self.modules if mod.name == module_name][0]
-			function = [func for func in module.functions if func.name == function_name]
+			function = [func for func in module.functions if func.name == function_name][0]
 			return (module, function)
 		except:
 			return (None, None)
@@ -323,6 +329,7 @@ class Launcher():
 				if full_name in self.running.keys() and len(self.running[full_name]) > 0:
 					self.log("WAKE event for module already awake sent to %s" % full_name, 7)
 					self.outbox.put(Letter(letter.body['letter'].to, letter.body['letter'].subject, letter.body["letter"].body, letter.body["letter"].sender))
+					continue
 
 				if not func.wake_on_letter:
 					self.send("self.post office", "WAKE FAIL", {'letter': letter.body['letter']})
