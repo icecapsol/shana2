@@ -25,7 +25,7 @@ class Communicator():
 			self.config = config
 			self.host = config['host']
 			self.port = config['port']
-			self.ssl = config['ssl']
+			self.ssl = False if 'ssl' not in config.keys() else config['ssl']
 			if self.ssl:
 				self.send = self._ssl_send
 				self.recv = self._ssl_recv
