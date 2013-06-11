@@ -9,8 +9,12 @@ def http(shana, event):
 		pid = subprocess.Popen(['identify', '-format', '"%s"' % format, '-'], executable='identify', stdin=subprocess.PIPE, stdout=subprocess.PIPE)
 		out, err = pid.communicate(chunk)
 		return out.decode('utf-8').replace('"', '')
-	if event.bytes.startswith(".un404"): return
-	if not event.sender.startswith("#") and not event.admin: return
+	if event.bytes.startswith(".un404"):
+		shana.log("Ignoring un404 command", 7)
+		return
+	if not event.sender.startswith("#") and not event.admin:
+		shana.log("Ignoring link sent in pm", 7)
+		return
 	
 	uri_file = open('modules/URIs.txt', 'r')
 	uri_list = uri_file.readlines()
@@ -53,9 +57,10 @@ def http(shana, event):
 			if url.rpartition('.')[2].lower() in ['jpg', 'jpeg', 'png', 'gif', 'tif', 'tiff']:
 				image_url = urlopen(url)
 				image = image_url.read(32768)
-				try: w, h, t = _identify.identify("%w %h %m", image).strip().split()
-				except:
+				try: w, h, t = identify("%w %h %m", image).strip().split()
+				except Exception as e:
 					shana.say("Yep, that's a link")
+					shana.log("Exception parsing image: %s" % e, 4)
 					return
 				
 				shana.say("[URI %s] 034chan: %sx%s %s" % (uri_number, w, h, t))
@@ -194,6 +199,8 @@ def http(shana, event):
 					module[1](catch)
 				except urllib.error.HTTPError as e:
 					shana.say('HTTP Error %d' % e.code)
+				except Exception as e:
+					shana.log("Exception retrieving link: %s" % e, 2)
 				caught = 1
 				uri_number += 1
 				break
@@ -202,6 +209,8 @@ def http(shana, event):
 				therest(catch)
 			except urllib.error.HTTPError as e:
 				shana.say('HTTP Error %d' % e.code)
+			except Exception as e:
+				shana.log("Exception retrieving link: %s" % e, 2)
 			uri_number += 1
 		caught = 0
 
