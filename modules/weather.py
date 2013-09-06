@@ -27,8 +27,8 @@ def location(name):
    except IndexError: 
       return '?', '?', '0', '0'
    countryName = results['geonames'][0]['countryName']
-   lat = results['geonames'][0]['lat']
-   lng = results['geonames'][0]['lng']
+   lat = float(results['geonames'][0]['lat'])
+   lng = float(results['geonames'][0]['lng'])
    return name, countryName, lat, lng
 
 class GrumbleError(object): 
