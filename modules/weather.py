@@ -292,13 +292,17 @@ def f_weather(self, origin, match, args):
 
    if temp: 
       if '/' in temp: 
-         temp = temp.split('/')[0]
-      else: temp = temp.split('.')[0]
+         temp, dew = temp.split('/')
+      else: temp, dew = temp.split('.')
       if temp.startswith('M'): 
          temp = '-' + temp[1:]
+      if dew.startswith('M'): 
+         dew = '-' + dew[1:]
       try: temp = int(temp)
       except ValueError: temp = '?'
-   else: temp = '?'
+      try: dew = int(dew)
+      except ValueError: dew = '?'
+   else: temp = dew = '?'
 
    if pressure: 
       if pressure.startswith('Q'): 
@@ -317,9 +321,14 @@ def f_weather(self, origin, match, args):
          if isinstance(temp, int): 
             f = round((temp * 1.8) + 32, 2)
             temp = u'%s\u2109 (%s\u2103)' % (f, temp)
+         if isinstance(dew, int): 
+            f = round((dew * 1.8) + 32, 2)
+            dew = u'%s\u2109 (%s\u2103)' % (f, dew)
    else: pressure = '?mb'
    if isinstance(temp, int): 
       temp = u'%s\u2103' % temp
+   if isinstance(dew, int): 
+      dew = u'%s\u2103' % dew
 
    if cond: 
       conds = cond
@@ -397,11 +406,11 @@ def f_weather(self, origin, match, args):
 
 
    if not cond: 
-      format = u'%s, %s, %s, %s - %s %s'
-      args = (cover, temp, pressure, wind, str(icao_code), time)
+      format = u'%s, %s, dew point: %s, %s, %s - %s %s'
+      args = (cover, temp, dew, pressure, wind, str(icao_code), time)
    else: 
-      format = u'%s, %s, %s, %s, %s - %s, %s'
-      args = (cover, temp, pressure, cond, wind, str(icao_code), time)
+      format = u'%s, %s, dew point: %s, %s, %s, %s - %s, %s'
+      args = (cover, temp, dew, pressure, cond, wind, str(icao_code), time)
 
    self.msg(origin.sender, format % args)
 f_weather.commands = ['weather']
