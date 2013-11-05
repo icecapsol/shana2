@@ -598,6 +598,7 @@ class Module():
 			self.input = event
 			self.pid = pid
 			self.conf = conf
+			self.handlers = {'subject': [], 'sender': []}
 		def write(self, args, text=None):
 			def safe(data): 
 				data = data.replace('\n', '')
@@ -623,6 +624,41 @@ class Module():
 			self.outbox.put(l)
 		def log(self, line, level):
 			self.send("module.bot.logger", "LOG", {'module': self.name, 'time': int(time.time()), 'text': line, 'numeric': level})
+		def register(self, func, subject=None, sender=None):
+			if subject:
+				if isinstance(subject, str):
+					h = self.handlers['subject'].setdefault(subject, [])
+					h.append(func)
+					self.handlers['subject'][subject] = h
+				else:
+					for subj in subject:
+						h = self.handlers['subject'].setdefault(subj, [])
+						h.append(func)
+						self.handlers['subject'][subj] = h
+			if sender:
+				if isinstance(sender, str):
+					h = self.handlers['sender'].setdefault(sender, [])
+					h.append(func)
+					self.handlers['sender'][sender] = h
+				else:
+					for send in sender:
+						h = self.handlers['sender'].setdefault(send, [])
+						h.append(func)
+						self.handlers['sender'][send] = h
+		def loop(self):
+			def callback(funcs, letter):
+				for func in funcs:
+					try: func(letter)
+					except Exception as e:
+						self.log("Exception in callback %s: %s" % (func.__name__, e), 2)
+
+			while True:
+				l = self.recv()
+				hits = [self.handlers['subject'][hit] for hit in self.handlers['subject'].keys() if hit == l.subject]
+				hits.extend([self.handlers['sender'][hit] for hit in self.handlers['sender'].keys() if hit == l.sender])
+				
+				for hit in hits:
+					callback(hit, l)
 		def recv(self, subject=None, sender=None, block=True):
 			while self.inbox.poll():
 				self.letters.append(self.inbox.recv())
