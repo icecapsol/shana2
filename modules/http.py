@@ -177,6 +177,19 @@ def http(shana, event):
 		new_uri([url, "3Title: %s\n" % title])
 		return
 
+	def tor(url):
+		# do not log these links
+		torpage = urllib.request.build_opener(urllib.request.ProxyHandler({"http": "localhost:8118", "https": "localhost:8118"})).open(url)
+		soup = BS(torpage)
+		
+		try: title = soup.find("title").get_text().strip()
+		except: return
+		
+		if not title: title = "Untitled"
+		
+		shana.say("[URI NULL] 3Tor: %s" % (title))
+		return
+
 	def therest(url):
 		page_url = urlopen(urllib.request.Request(url, headers={'User-agent': "Mozilla/5.0 (X11; Linux x86_64; rv:20.0) Gecko/20100101 Firefox/20.0"}))
 		try: title = BS(page_url.read(8196)).find("title").get_text().strip()
@@ -190,7 +203,8 @@ def http(shana, event):
 
 		
 	modulelist = [('4chan.org', fourchan), ('newegg.c', newegg), ('.youtube.com', youtube), ('.static.flickr.com', flickr),
-	 ('ompldr.org', omploader), ('omploader.org', omploader), ('gelbooru.com', gelbooru), ('danbooru.donmai.us', danbooru)]
+	 ('ompldr.org', omploader), ('omploader.org', omploader), ('gelbooru.com', gelbooru), ('danbooru.donmai.us', danbooru),
+	 (".onion.to", tor), (".onion", tor)]
 	caught = 0
 	for catch in event.searches:
 		for module in modulelist:
