@@ -25,6 +25,7 @@ class Communicator():
 			self.config = config
 			self.host = config['host']
 			self.port = config['port']
+			self.reconnect_wait = 10
 			self.ssl = False if 'ssl' not in config.keys() else config['ssl']
 			if self.ssl:
 				self.send = self._ssl_send
@@ -68,7 +69,13 @@ class Communicator():
 		def initiate_connect(self): 
 			self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
 			self.log("Connecting to %s %s" % (self.host, self.port), 6)
-			self.connect((self.host, int(self.port)))
+			try:
+				self.connect((self.host, int(self.port)))
+				self.reconnect_wait = 10
+			except:
+				self.log("%s: %s" % sys.exc_info()[:2], 2)
+				self.reconnect_wait = (self.reconnect_wait * 2) % 240
+				
 		def handle_connect(self): 
 			if self.ssl:
 				self.ssl_sock = ssl.wrap_socket(self.socket, do_handshake_on_connect=False)
@@ -85,8 +92,14 @@ class Communicator():
 						else:
 							raise
 			self.send_letter("module.irc.login", "CONNECT", {'message': "new connection"})
-		def handle_close(self): 
+		def handle_close(self):
+			if self.reconnect_wait == 10:
+				self.log("Connection to %s lost. Reconnecting in %d seconds" % (self.host, self.reconnect_wait), 5)
+			else:
+				self.log("Connecting to %s failed. Retrying in %d seconds" % (self.host, self.reconnect_wait), 3)
 			self.close()
+			time.sleep(self.reconnect_wait)
+			self.initiate_connect(self)
 
 		def handle_error(self):
 			print(traceback.format_exc())
