@@ -87,12 +87,11 @@ class Communicator():
 			self.send_letter("module.irc.login", "CONNECT", {'message': "new connection"})
 		def handle_close(self): 
 			self.close()
+
 		def handle_error(self):
-			cls, value = sys.exc_info()[:2]
-			print('Error:\n'+str(value))
+			print(traceback.format_exc())
 			print(self.buffer)
-			#if cls == socket.error or cls == socket.gaierror:
-			#	self.handle_close()
+
 		def collect_incoming_data(self, data): 
 			self.buffer += data
 		def found_terminator(self):
