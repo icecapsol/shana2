@@ -68,12 +68,12 @@ class Communicator():
 		
 		def initiate_connect(self): 
 			self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
-			self.log("Connecting to %s %s" % (self.host, self.port), 6)
+			self.log("Connecting to %s %s" % (self.host, self.port), "STATUS")
 			try:
 				self.connect((self.host, int(self.port)))
 				self.reconnect_wait = 10
 			except:
-				self.log("%s: %s" % sys.exc_info()[:2], 2)
+				self.log("%s: %s" % sys.exc_info()[:2], "ERROR")
 				self.reconnect_wait = (self.reconnect_wait * 2) % 240
 				
 		def handle_connect(self): 
@@ -94,9 +94,9 @@ class Communicator():
 			self.send_letter("module.irc.login", "CONNECT", {'message': "new connection"})
 		def handle_close(self):
 			if self.reconnect_wait == 10:
-				self.log("Connection to %s lost. Reconnecting in %d seconds" % (self.host, self.reconnect_wait), 5)
+				self.log("Connection to %s lost. Reconnecting in %d seconds" % (self.host, self.reconnect_wait), "NOTICE")
 			else:
-				self.log("Connecting to %s failed. Retrying in %d seconds" % (self.host, self.reconnect_wait), 3)
+				self.log("Connecting to %s failed. Retrying in %d seconds" % (self.host, self.reconnect_wait), "WARNING")
 			self.close()
 			time.sleep(self.reconnect_wait)
 			self.initiate_connect(self)
@@ -124,7 +124,7 @@ class Communicator():
 			self.comm = comm
 		
 		def log(self, line, level):
-			self.send("module.bot.logger", "LOG", {'module': 'Speaker', 'time': int(time.time()), 'text': line, 'numeric': level})
+			self.send("module.bot.logger", "LOG", {'module': 'Speaker', 'time': int(time.time()), 'text': line, 'level': level})
 		
 		def run(self):
 			while True:
@@ -134,8 +134,8 @@ class Communicator():
 					except:
 						try:
 							self.comm.push(letter.body['message'].encode('cp1252'))
-							self.log("Badly encoded characters in message:", 3)
-							self.log(letter.body['message'], 3)
+							self.log("Badly encoded characters in message:", "WARNING")
+							self.log(letter.body['message'], "WARNING")
 						except:
 							print(traceback.format_exc())
 							print(letter.body['message'])
@@ -169,7 +169,7 @@ class Parser():
 		l = Letter(to, subject, body, "self.parser")
 		self.outbox.put(l)
 	def log(self, line, level):
-		self.send("module.bot.logger", "LOG", {'module': 'Parser', 'time': int(time.time()), 'text': line, 'numeric': level})
+		self.send("module.bot.logger", "LOG", {'module': 'Parser', 'time': int(time.time()), 'text': line, 'level': level})
 		
 	def run(self):
 		while True:
@@ -177,7 +177,7 @@ class Parser():
 			if l.subject == "NEW LINE":
 				line = l.body['line']
 			else: continue
-			self.log("new line '%s'" % line.strip(), 7)
+			self.log("new line '%s'" % line.strip(), "DEBUG")
 			
 			if line.startswith(':'): 
 				source, line = line[1:].split(' ', 1)
@@ -219,7 +219,7 @@ class Generator():
 		self.outbox.put(l)
 	
 	def log(self, line, level):
-		self.send("module.bot.logger", "LOG", {'module': 'Generator', 'time': int(time.time()), 'text': line, 'numeric': level})
+		self.send("module.bot.logger", "LOG", {'module': 'Generator', 'time': int(time.time()), 'text': line, 'level': level})
 	
 	def run(self):
 		while True:
@@ -227,7 +227,7 @@ class Generator():
 			if l.subject == "NEW IRC DATA":
 				data = l.body['data']
 			else:
-				self.log("Got Erroneous letter. Subject: '%s'" % l.subject, 5)				
+				self.log("Got Erroneous letter. Subject: '%s'" % l.subject, "NOTICE")				
 				continue
 			event = Event(data.args[0], data, data.args[0], data.args[1], data.args[2:], self.config)
 			self.send("self.launcher", "NEW EVENT", {'event': event})
@@ -285,14 +285,14 @@ class Launcher():
 				trace = traceback.format_exc()
 				print(trace)
 				exceptions.append(fn)
-		self.log("Loaded %d modules (%d errors)" % (len(self.modules), len(exceptions)), 5)
+		self.log("Loaded %d modules (%d errors)" % (len(self.modules), len(exceptions)), "NOTICE")
 	
 	def launch_module(self, mod, func, event=None):
 		q = Pipe()
 		p = Process(target=mod.start, args=(event, func, (q[0], self.outbox), mod.name))
 		p.start()
 		self.send("self.post office", "Add", {'name': "module.%s.%s.%s" % (mod.name, func.name, p.pid), "queue": q[1]})
-		self.log("Launching module %s.%s.%s" % (mod.name, func.name, p.pid), 6)
+		self.log("Launching module %s.%s.%s" % (mod.name, func.name, p.pid), "STATUS")
 		return p
 	
 	def startup(self):
@@ -301,10 +301,10 @@ class Launcher():
 		p = Process(target=self.pobox.run, args=())
 		p.start()
 		self.send("self.post office", "Add", {'name': "self.launcher.%s" % p.pid, "queue": self.box_r})
-		self.log("Starting post office", 5)
+		self.log("Starting post office", "NOTICE")
 		
 		# generator
-		self.log("Starting generator", 5)
+		self.log("Starting generator", "NOTICE")
 		gbox = Pipe()
 		self.generator = Generator(gbox[0], self.outbox, dict(list(self.config.get('Generator', {}).items()) + list(self.config["Global"].items())))
 		p = Process(target=self.generator.run, args=())
@@ -312,7 +312,7 @@ class Launcher():
 		self.send("self.post office", "Add", {'name': "self.generator.%s" % p.pid, "queue": gbox[1]})
 		
 		# parser
-		self.log("Starting parser", 5)
+		self.log("Starting parser", "NOTICE")
 		pbox = Pipe()
 		self.parser = Parser(pbox[0], self.outbox, dict(list(self.config.get('Parser', {}).items()) + list(self.config["Global"].items())))
 		p = Process(target=self.parser.run, args=())
@@ -320,7 +320,7 @@ class Launcher():
 		self.send("self.post office", "Add", {'name': "self.parser.%s" % p.pid, "queue": pbox[1]})
 		
 		# listener
-		self.log("Starting communicator", 5)
+		self.log("Starting communicator", "NOTICE")
 		lbox = Pipe()
 		self.communicator = Communicator(lbox[0], self.outbox, dict(list(self.config.get('Communicator', {}).items()) + list(self.config["Global"].items())))
 		p = Process(target=self.communicator.run, args=())
@@ -330,7 +330,7 @@ class Launcher():
 		for m in self.modules:
 			for func in m.functions:
 				if func.startup:
-					self.log("Launching startup module %s." % func.name, 6)
+					self.log("Launching startup module %s." % func.name, "STATUS")
 					self.launch_module(m, func, None)
 
 	def send(self, to, subject, body):
@@ -338,7 +338,7 @@ class Launcher():
 		self.outbox.put(l)
 	
 	def log(self, line, level):
-		self.send("module.bot.logger", "LOG", {'module': 'Launcher', 'time': int(time.time()), 'text': line, 'numeric': level})
+		self.send("module.bot.logger", "LOG", {'module': 'Launcher', 'time': int(time.time()), 'text': line, 'level': level})
 	
 	def shutdown(self, args):
 		pass
@@ -384,16 +384,16 @@ class Launcher():
 				mod, func = self.get_module_function(letter.body['letter'].to_f[:3])
 				if not func:
 					self.send("self.post office", "WAKE FAIL", {'letter': letter.body['letter']})
-					self.log("Badly formatted WAKE event %s" % letter.body['letter'].to, 2)
+					self.log("Badly formatted WAKE event %s" % letter.body['letter'].to, "ERROR")
 				full_name = letter.body['letter'].to
 				if full_name in self.running.keys() and len(self.running[full_name]) > 0:
-					self.log("WAKE event for module already awake sent to %s" % full_name, 7)
+					self.log("WAKE event for module already awake sent to %s" % full_name, "DEBUG")
 					self.outbox.put(Letter(letter.body['letter'].to, letter.body['letter'].subject, letter.body["letter"].body, letter.body["letter"].sender))
 					continue
 
 				if not func.wake_on_letter:
 					self.send("self.post office", "WAKE FAIL", {'letter': letter.body['letter']})
-					self.log("Attempt to wake %s denied because function doesn't allow wakes" % letter.body['letter'].to, 4)
+					self.log("Attempt to wake %s denied because function doesn't allow wakes" % letter.body['letter'].to, "CAUTION")
 
 				else:
 					p = self.launch_module(mod, func)
@@ -416,7 +416,7 @@ class Launcher():
 				full_name.insert("module", 0)
 				mod, func = self.get_module_function(full_name)
 				if func: self.launch_module(mod, func, letter.body.setdefault('args', {}))
-				else: self.log("Request to launch module '%s' from %s failed: No such module or function" % ('.'.join(full_name), letter.sender), 2)
+				else: self.log("Request to launch module '%s' from %s failed: No such module or function" % ('.'.join(full_name), letter.sender), "ERROR")
 			elif letter.subject == "LIST MODULES":
 				mods = {}
 				for mod in self.modules:
@@ -635,7 +635,7 @@ class Module():
 			l = Letter(to, subject, body, self.name)
 			self.outbox.put(l)
 		def log(self, line, level):
-			self.send("module.bot.logger", "LOG", {'module': self.name, 'time': int(time.time()), 'text': line, 'numeric': level})
+			self.send("module.bot.logger", "LOG", {'module': self.name, 'time': int(time.time()), 'text': line, 'level': level})
 		def register(self, func, subject=None, sender=None):
 			if subject:
 				if isinstance(subject, str):
@@ -662,7 +662,7 @@ class Module():
 				for func in funcs:
 					try: func(letter)
 					except Exception as e:
-						self.log("Exception in callback %s: %s" % (func.__name__, e), 2)
+						self.log("Exception in callback %s: %s" % (func.__name__, e), "ERROR")
 
 			while True:
 				l = self.recv()

@@ -127,8 +127,6 @@ def logger(shana, event):
 			outputs.remove(out)
 		elif l.subject == "LOG":
 			message = l.body
-			if 'level' not in message.keys():
-				message['level'] = ["FATAL", "CRITICAL", "ERROR", "WARNING", "CAUTION", "NOTICE", "STATUS", "DEBUG"][message['numeric']]
 			lines.append(message)
 			if len(lines) > 5000: lines.pop(0)
 			
