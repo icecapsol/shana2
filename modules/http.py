@@ -9,6 +9,14 @@ def http(shana, event):
 		pid = subprocess.Popen(['identify', '-format', '"%s"' % format, '-'], executable='identify', stdin=subprocess.PIPE, stdout=subprocess.PIPE)
 		out, err = pid.communicate(chunk)
 		return out.decode('utf-8').replace('"', '')
+	def bytes_to_better_bytes(b):
+		levels = ['B', 'KB', 'MB', 'GB']
+		for l in levels:
+			if b < 1024:
+				return "%.1f %s" % (b, l)
+			b = b / 1024.0
+		return "%.1f GB" % b
+				
 	if event.bytes.startswith(".un404"):
 		shana.log("Ignoring un404 command", 7)
 		return
@@ -37,6 +45,9 @@ def http(shana, event):
 		if url.find("/b/") != -1:
 			shana.write(['KICK', event.sender+' '+event.nick], 'Rule #1, faggot')
 			return
+		if url.find("/mlp/") != -1:
+			shana.say("ponies :/")
+			return
 		if url.find("boards") != -1:
 			page_url = urlopen(url)
 			soup = BS(page_url.read(32768))
@@ -50,21 +61,27 @@ def http(shana, event):
 			else:
 				shana.say("[URI %s] 034chan %s" % (uri_number, title))
 				new_uri([url, "034chan %s\n"  % title])
-		elif url.find("images") != -1:
-			if url.find("/mlp/") != -1:
-				shana.say("ponies :/")
+	def fourchan_images(url):
+		if url.find("/b/") != -1:
+			shana.write(['KICK', event.sender+' '+event.nick], 'Rule #1, faggot')
+			return
+		if url.find("/mlp/") != -1:
+			shana.say("ponies :/")
+			return
+		if url.rpartition('.')[2].lower() in ['jpg', 'jpeg', 'png', 'gif', 'tif', 'tiff']:
+			image_url = urlopen(url)
+			image_info = image_url.info()
+			#shana.msg('iosys', repr(image_info._headers))
+			image_size = int(image_info["Content-Length"])
+			image = image_url.read(32768)
+			try: w, h, t = identify("%w %h %m", image).strip().split()
+			except Exception as e:
+				shana.say("Yep, that's a link")
+				shana.log("Exception parsing image: %s" % e, 4)
 				return
-			if url.rpartition('.')[2].lower() in ['jpg', 'jpeg', 'png', 'gif', 'tif', 'tiff']:
-				image_url = urlopen(url)
-				image = image_url.read(32768)
-				try: w, h, t = identify("%w %h %m", image).strip().split()
-				except Exception as e:
-					shana.say("Yep, that's a link")
-					shana.log("Exception parsing image: %s" % e, 4)
-					return
-				
-				shana.say("[URI %s] 034chan: %sx%s %s" % (uri_number, w, h, t))
-				new_uri([url, "034chan %sx%s %s\n" % (w, h, t)])
+			
+			shana.say("[URI %s] 034chan: %sx%s %s %s" % (uri_number, w, h, bytes_to_better_bytes(image_size), t))
+			new_uri([url, "034chan %sx%s %s %s\n" % (w, h, bytes_to_better_bytes(image_size), t)])
 
 	def newegg(url):
 		page_url = urlopen(url)
@@ -202,7 +219,7 @@ def http(shana, event):
 		return
 
 		
-	modulelist = [('4chan.org', fourchan), ('newegg.c', newegg), ('.youtube.com', youtube), ('.static.flickr.com', flickr),
+	modulelist = [('4chan.org', fourchan), ('4cdn.org', fourchan_images), ('newegg.c', newegg), ('.youtube.com', youtube), ('.static.flickr.com', flickr),
 	 ('ompldr.org', omploader), ('omploader.org', omploader), ('gelbooru.com', gelbooru), ('danbooru.donmai.us', danbooru),
 	 (".onion.to", tor), (".onion", tor)]
 	caught = 0
