@@ -22,15 +22,21 @@ class Communicator():
 			self.set_terminator(b'\n')
 			self.buffer = b''
 			self.outbox = box
+			self.reload_config(config)
+		
+		def reload_config(self, config):
 			self.config = config
 			self.host = config['host']
 			self.port = config['port']
-			self.reconnect_wait = 10
 			self.ssl = False if 'ssl' not in config.keys() else config['ssl']
+			
 			if self.ssl:
 				self.send = self._ssl_send
 				self.recv = self._ssl_recv
-		
+			else:
+				self.send = asynchat.async_chat.send
+				self.recv = asynchat.async_chat.recv
+				
 		def _ssl_send(self, data):
 			try:
 				result = self.write(data)
@@ -113,6 +119,7 @@ class Communicator():
 			if line.decode().endswith('\r'): 
 				line = line[:-1]
 			self.buffer = b''
+			self.log("New line: %s" % line.decode(), "DEBUG")
 			self.send_letter("self.parser", "NEW LINE", {'line': line.decode()})
 		def run(self):
 			self.initiate_connect()
@@ -125,12 +132,12 @@ class Communicator():
 			self.comm = comm
 		
 		def log(self, line, level):
-			self.send("module.bot.logger", "LOG", {'module': 'Speaker', 'time': int(time.time()), 'text': line, 'level': level})
+			self.comm.send_letter("module.bot.logger", "LOG", {'module': 'Speaker', 'time': int(time.time()), 'text': line, 'level': level})
 		
 		def run(self):
 			while True:
 				letter = self.inbox.recv()
-				if letter.subject =="NEW IRC OUTPUT":
+				if letter.subject == "NEW IRC OUTPUT":
 					try: self.comm.push(letter.body['message'].encode('utf-8'))
 					except:
 						try:
@@ -142,6 +149,9 @@ class Communicator():
 								self.log(line, "ERROR")
 							self.log(letter.body['message'], "ERROR")
 					time.sleep(0.1)
+				elif letter.subject == "RELOAD":
+					self.comm.reload_config(letter.body['config'])
+					self.log("Reloading Listener's configuration", "NOTICE")
 	
 	def __init__(self, inbox, outbox, config):
 		self.listener = Communicator.Listener(outbox, config)
@@ -158,11 +168,14 @@ class Communicator():
 
 class Parser():
 	def __init__(self, inbox, outbox, config):
-		self.config = config
+		self.reload_config(config)
 		self.inbox = inbox
 		self.outbox = outbox
 		self.source = re.compile(r'([^!]*)!?([^@]*)@?(.*)')
 		signal.signal(signal.SIGINT, self.die)
+		
+	def reload_config(self, config):
+		self.config = config
 		
 	def die(self, sig, frame):
 		sys.exit(0)
@@ -178,6 +191,9 @@ class Parser():
 			l = self.inbox.recv()
 			if l.subject == "NEW LINE":
 				line = l.body['line']
+			elif l.subject == "RELOAD":
+				self.reload_config(l.body['config'])
+				continue
 			else: continue
 			self.log("new line '%s'" % line.strip(), "DEBUG")
 			
@@ -208,10 +224,13 @@ class Data():
 
 class Generator():
 	def __init__(self, inbox, outbox, config):
-		self.config = config
+		self.reload_config(config)
 		self.inbox = inbox
 		self.outbox = outbox
 		signal.signal(signal.SIGINT, self.die)
+	
+	def reload_config(self, config):
+		self.config = config
 		
 	def die(self, sig, frame):
 		sys.exit(0)
@@ -228,6 +247,9 @@ class Generator():
 			l = self.inbox.recv()
 			if l.subject == "NEW IRC DATA":
 				data = l.body['data']
+			elif l.subject == "RELOAD":
+				self.reload_config(l.body['config'])
+				continue
 			else:
 				self.log("Got Erroneous letter. Subject: '%s'" % l.subject, "NOTICE")				
 				continue
@@ -258,15 +280,40 @@ class Event():
 		self.ugroups = config['passwd'].get(self.username, ['nobody']) # 0 groups, 1 password, 2 home
 
 class Launcher():
-	def __init__(self, config):
+	def __init__(self, conf_name):
 		self.inbox, self.box_r = Pipe()
 		self.outbox = Queue(16386) # PO's inbox
-		self.config = config
 		self.running = {}
 		signal.signal(signal.SIGINT, self.die)
+		self.conf_name = conf_name
+		self.read_config()
 		self.load_modules()
 		self.startup()
 		self.run()
+	
+	def read_config(self):
+		conf_file = open(self.conf_name, "r")
+		self.config = yaml.load(conf_file)
+		conf_file.close()
+	def write_config(self):
+		os.rename(self.conf_name, self.conf_name+".sav")
+		conf_file = open(self.conf_name, "w")
+		yaml.dump(self.config, conf_file, default_flow_style=False)
+		conf_file.close()
+	def reload_config(self, config):
+		self.config = config
+		self.send("self.communicator", "RELOAD", {'config': self.merge(self.config.get('Communicator', {}), self.config["Global"])})
+		self.send("self.parser", "RELOAD", {'config': self.merge(self.config.get('Parser', {}), self.config["Global"])})
+		self.send("self.generator", "RELOAD", {'config': self.merge(self.config.get('Generator', {}), self.config["Global"])})
+		self.send("self.post office", "RELOAD", {'config': self.merge(self.config.get('Post Office', {}), self.config["Global"])})
+	def merge(self, x,y):        
+		merged = dict(list(x.items()) + list(y.items()))
+		xkeys = x.keys()
+	                      
+		for key in xkeys:                               
+			if str(type(x[key])) == "<class 'dict'>" and key in y.keys():
+				merged[key] = self.merge(x[key],y[key])
+		return merged
 		
 	def die(self, sig, frame):
 		sys.exit(0)
@@ -424,6 +471,10 @@ class Launcher():
 				for mod in self.modules:
 					mods[mod.name] = [func.name for func in mod.functions]
 				self.send(letter.sender, "MODULES LIST", {'list': mods})
+			elif letter.subject == "SET CONF":
+				self.reload_config(self.merge(self.config, letter.body['config']))
+			elif letter.subject == "SAVE CONF":
+				self.write_config()
 			elif letter.subject == "SHUTDOWN":
 				if not letter.sender: continue
 				mod_name, func_name = letter.sender.split(".", 2)[1:]
@@ -446,10 +497,13 @@ class Letter:
 
 class Postoffice():
 	def __init__(self, queue, config):
-		self.config = config
+		self.reload_config(config)
 		self.inbox = queue
 		self.boxes = {}
 		signal.signal(signal.SIGINT, self.die)
+	
+	def reload_config(self, config):
+		self.config = config
 		
 	def die(self, sig, frame):
 		sys.exit(0)
@@ -477,6 +531,8 @@ class Postoffice():
 			self.mkbox(letter.body['name'], letter.body["queue"])
 		elif letter.subject == "Remove":
 			self.rmbox(letter.body['name'])
+		elif letter.subject == "RELOAD":
+			self.reload_config(letter.body['config'])
 		elif letter.subject == "LIST BOXES":
 			name, box = self.best_match(letter.sender.split("."), self.boxes, 0)
 			try: box.send(Letter(letter.sender, "LIST BOXES", {'list': list(self.boxes.keys())}, "self.post office"))
@@ -794,8 +850,4 @@ for opt in optlist:
     if opt[0] in ['-c', '--conf']:
         conf_name = opt[1]
 
-conf_file = open(conf_name, "r")
-config = yaml.load(conf_file)
-conf_file.close()
-
-Launcher(config)
+Launcher(conf_name)

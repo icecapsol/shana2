@@ -38,6 +38,19 @@ quit.commands = ['quit', 'q']
 quit.mode = (True, True, False)
 quit.group = 'admin'
 
+def config(shana, event):
+	key, param = event.group(2).split(" = ", 1)
+	d = {}
+	for part in reversed(key.split(".")):
+		if not d.keys():
+			d[part] = param
+		else:
+			d = {part: d}
+	shana.send("self.launcher", "SET CONF", {'config': d})
+config.commands = ['config']
+config.mode = (True, True, False)
+config.group = 'admin'
+
 def msg(phenny, input): 
 	# Can only be done in privmsg by an admin
 	if input.sender.startswith('#'): return
