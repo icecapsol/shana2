@@ -347,6 +347,7 @@ class Launcher():
 		p.start()
 		self.send("self.post office", "Add", {'name': "module.%s.%s.%s" % (mod.name, func.name, p.pid), "queue": q[1]})
 		self.log("Launching module %s.%s.%s" % (mod.name, func.name, p.pid), "STATUS")
+		func.last_launched = time.time()
 		return p
 	
 	def startup(self):
@@ -614,6 +615,11 @@ class Module():
 			self.startup = getattr(self.func, 'startup', False)
 			self.service = getattr(self.func, 'service', False)
 			self.wake_on_letter = getattr(self.func, 'wake_on_letter', False)
+			quota = getattr(self.func, 'quota', (0, 0, 0))
+			if isinstance(quota, int) or isinstance(quota, float):
+				quota = (self.func.quota, self.func.quota, self.func.quota)
+			self.quota = quota
+			self.last_launched = 0
 			if hasattr(self.func, "event"):
 				if isinstance(self.func.event, str):
 					self.event = [self.func.event,]
@@ -794,7 +800,10 @@ class Module():
 	def approve(self, func, event):
 		acl = self.acl.funcs[func.name]
 		if acl['mode'][2] or (acl['group'] in event.ugroups and acl['mode'][1]) or (event.username == acl['owner'] and acl['mode'][0]):
-			return True
+			if (event.username == acl['owner'] and func.last_launched + func.quota[0] < time.time()) or (
+			   acl['group'] in event.ugroups and func.last_launched + func.quota[1] < time.time()) or (
+			   func.last_launched + func.quota[2] < time.time()):
+				return True
 
 	def start(self, event, func, mail, mod_name):
 		if hasattr(os, 'getppid'):
