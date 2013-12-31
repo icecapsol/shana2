@@ -10,7 +10,7 @@ Licensed under the Eiffel Forum License 2.
 http://inamidst.com/phenny/
 """
 
-import sys, os, re, time, socket, asyncore, asynchat, imp, threading, datetime, traceback, getopt, signal
+import sys, os, re, time, socket, asyncore, asynchat, imp, threading, datetime, traceback, getopt, signal, locale
 import ssl, errno, select
 import yaml
 from multiprocessing import Process, Pipe, Queue
@@ -285,6 +285,7 @@ class Launcher():
 		self.outbox = Queue(16386) # PO's inbox
 		self.running = {}
 		signal.signal(signal.SIGINT, self.die)
+		self.locale_check()
 		self.conf_name = conf_name
 		self.read_config()
 		self.load_modules()
@@ -314,7 +315,11 @@ class Launcher():
 			if str(type(x[key])) == "<class 'dict'>" and key in y.keys():
 				merged[key] = self.merge(x[key],y[key])
 		return merged
-		
+	
+	def locale_check(self):
+		if locale.getpreferredencoding() != "UTF-8":
+			self.log("Default encoding is not set to UTF-8. This will likely break unicode support.", "CRITICAL")
+	
 	def die(self, sig, frame):
 		sys.exit(0)
 	
