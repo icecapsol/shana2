@@ -2,7 +2,7 @@
 
 ## About
 
-Shana2 is a modular IRC bot written in Python.  She was 
+Shana2 is a modular IRC bot written in Python.
 
 ## Purpose
 
