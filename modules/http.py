@@ -68,10 +68,9 @@ def http(shana, event):
 		if url.find("/mlp/") != -1:
 			shana.say("ponies :/")
 			return
-		if url.rpartition('.')[2].lower() in ['jpg', 'jpeg', 'png', 'gif', 'tif', 'tiff']:
+		if url.rsplit(".", 1)[1].lower() in ['jpg', 'jpeg', 'png', 'gif', 'tif', 'tiff']:
 			image_url = urlopen(url)
 			image_info = image_url.info()
-			#shana.msg('iosys', repr(image_info._headers))
 			image_size = int(image_info["Content-Length"])
 			image = image_url.read(32768)
 			try: w, h, t = identify("%w %h %m", image).strip().split()
@@ -82,6 +81,13 @@ def http(shana, event):
 			
 			shana.say("[URI %s] 034chan: %sx%s %s %s" % (uri_number, w, h, bytes_to_better_bytes(image_size), t))
 			new_uri([url, "034chan %sx%s %s %s\n" % (w, h, bytes_to_better_bytes(image_size), t)])
+		if url.rsplit(".", 1)[1].lower() == "webm":
+			image_url = urlopen(url)
+			image_info = image_url.info()
+			image_size = int(image_info["Content-Length"])
+			
+			shana.say("[URI %s] 034chan: %s WebM" % (uri_number, bytes_to_better_bytes(image_size)))
+			new_uri([url, "034chan %s WebM\n" % bytes_to_better_bytes(image_size)])
 
 	def newegg(url):
 		page_url = urlopen(url)
