@@ -1,7 +1,10 @@
 #!/usr/bin/env python
 # coding=utf-8
+
 """
-calc.py - Phenny Calculator Module
+calc.py - Phenny Calculator Module modified a tiny bit to work with shana2
+Copyright 2014, icecapsol@gmail.com
+
 Copyright 2008, Sean B. Palmer, inamidst.com
 Licensed under the Eiffel Forum License 2.
 
@@ -63,31 +66,8 @@ def calc(phenny, input):
 
       phenny.say(q + ' = ' + result[:350])
    else: phenny.reply("Sorry, can't calculate that.")
-   phenny.say('Note that .calc is deprecated, consider using .c')
 calc.commands = ['calc']
 calc.example = '.calc 5 + 3'
-
-def c(phenny, input): 
-   """Google calculator."""
-   if not input.group(2):
-      return phenny.reply("Nothing to calculate.")
-   q = input.group(2)
-   q = q.replace('\xcf\x95', 'phi') # utf-8 U+03D5
-   q = q.replace('\xcf\x80', 'pi') # utf-8 U+03C0
-   uri = 'http://www.google.com/ig/calculator?q='
-   bytes = web.get(uri + web.urllib.parse.quote(q)).decode('utf-8', 'ignore')
-   parts = bytes.split('",')
-   answer = [p for p in parts if p.startswith('rhs: "')][0][6:]
-   if answer: 
-      answer = ''.join(chr(ord(c)) for c in answer)
-      answer = answer.replace(u'\xc2\xa0', ',')
-      answer = answer.replace('<sup>', '^(')
-      answer = answer.replace('</sup>', ')')
-      answer = web.decode(answer)
-      phenny.say(answer)
-   else: phenny.say('Sorry, no result.')
-c.commands = ['c']
-c.example = '.c 5 + 3'
 
 def py(phenny, input): 
    query = input.group(2).encode('utf-8')
