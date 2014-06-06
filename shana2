@@ -10,259 +10,25 @@ Licensed under the Eiffel Forum License 2.
 http://inamidst.com/phenny/
 """
 
-import sys, os, re, time, socket, asyncore, asynchat, imp, threading, datetime, traceback, getopt, signal, locale
-import ssl, errno, select
+import sys, os, re, time, imp, datetime, traceback, getopt, signal, locale
 import yaml
 from multiprocessing import Process, Pipe, Queue
 
-class Communicator():
-	class Listener(asynchat.async_chat):
-		def __init__(self, box, config):
-			asynchat.async_chat.__init__(self)
-			self.set_terminator(b'\n')
-			self.buffer = b''
-			self.outbox = box
-			self.reload_config(config)
-		
-		def reload_config(self, config):
-			self.config = config
-			self.host = config['host']
-			self.port = config['port']
-			self.ssl = False if 'ssl' not in config.keys() else config['ssl']
-			
-			if self.ssl:
-				self.send = self._ssl_send
-				self.recv = self._ssl_recv
-			else:
-				self.send = asynchat.async_chat.send
-				self.recv = asynchat.async_chat.recv
-				
-		def _ssl_send(self, data):
-			try:
-				result = self.write(data)
-				return result
-			except ssl.SSLError as why:
-				if why[0] in (asyncore.EWOULDBLOCK, errno.ESRCH):
-					return 0
-				else:
-					raise ssl.SSLError(why)
-				return 0
-		
-		def _ssl_recv(self, buffer_size):
-			try:
-				data = self.read(buffer_size)
-				if not data:
-					self.handle_close()
-					return ''
-				return data
-			except ssl.SSLError as why:
-				if why[0] in (asyncore.ECONNRESET, asyncore.ENOTCONN,
-						  asyncore.ESHUTDOWN):
-					self.handle_close()
-					return ''
-				elif why[0] == errno.ENOENT:
-					return ''
-				else:
-					raise
-	
-		def send_letter(self, to, subject, body):
-			l = Letter(to, subject, body, "self.communicator")
-			self.outbox.put(l)
-		
-		def log(self, line, level):
-			self.send_letter("module.bot.logger", "LOG", {'module': 'Listener', 'time': int(time.time()), 'text': line, 'level': level})
-		
-		def initiate_connect(self): 
-			self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
-			self.log("Connecting to %s %s" % (self.host, self.port), "STATUS")
-			try:
-				self.connect((self.host, int(self.port)))
-				self.reconnect_wait = 10
-			except:
-				self.log("%s: %s" % sys.exc_info()[:2], "ERROR")
-				self.reconnect_wait = (self.reconnect_wait * 2) % 240
-				
-		def handle_connect(self): 
-			if self.ssl:
-				self.ssl_sock = ssl.wrap_socket(self.socket, do_handshake_on_connect=False)
-				self.set_socket(self.ssl_sock)
-				while True:
-					try:
-						self.socket.do_handshake()
-						break
-					except ssl.SSLError as err:
-						if err.args[0] == ssl.SSL_ERROR_WANT_READ:
-							select.select([self.socket], [], [])
-						elif err.args[0] == ssl.SSL_ERROR_WANT_WRITE:
-							select.select([], [self.socket], [])
-						else:
-							raise
-			self.send_letter("module.irc.login", "CONNECT", {'message': "new connection"})
-		def handle_close(self):
-			if self.reconnect_wait == 10:
-				self.log("Connection to %s lost. Reconnecting in %d seconds" % (self.host, self.reconnect_wait), "NOTICE")
-			else:
-				self.log("Connecting to %s failed. Retrying in %d seconds" % (self.host, self.reconnect_wait), "WARNING")
-			self.close()
-			time.sleep(self.reconnect_wait)
-			self.initiate_connect()
-
-		def handle_error(self):
-			for line in traceback.format_exc().split('\n'):
-				self.log(line, "ERROR")
-			self.log("Send buffer: %s" % self.buffer, "ERROR")
-
-		def collect_incoming_data(self, data): 
-			self.buffer += data
-		def found_terminator(self):
-			line = self.buffer
-			if line.decode().endswith('\r'): 
-				line = line[:-1]
-			self.buffer = b''
-			self.log("New line: %s" % line.decode(), "DEBUG")
-			self.send_letter("self.parser", "NEW LINE", {'line': line.decode()})
-		def run(self):
-			self.initiate_connect()
-			try: asyncore.loop()
-			except KeyboardInterrupt: 
-				sys.exit(0)
-	class Speaker():
-		def __init__(self, inbox, comm):
-			self.inbox = inbox
-			self.comm = comm
-		
-		def log(self, line, level):
-			self.comm.send_letter("module.bot.logger", "LOG", {'module': 'Speaker', 'time': int(time.time()), 'text': line, 'level': level})
-		
-		def run(self):
-			while True:
-				letter = self.inbox.recv()
-				if letter.subject == "NEW IRC OUTPUT":
-					try: self.comm.push(letter.body['message'].encode('utf-8'))
-					except:
-						try:
-							self.comm.push(letter.body['message'].encode('cp1252'))
-							self.log("Badly encoded characters in message:", "WARNING")
-							self.log(letter.body['message'], "WARNING")
-						except:
-							for line in traceback.format_exc().split('\n'):
-								self.log(line, "ERROR")
-							self.log(letter.body['message'], "ERROR")
-					time.sleep(0.1)
-				elif letter.subject == "RELOAD":
-					self.comm.reload_config(letter.body['config'])
-					self.log("Reloading Listener's configuration", "NOTICE")
-	
-	def __init__(self, inbox, outbox, config):
-		self.listener = Communicator.Listener(outbox, config)
-		self.speaker = Communicator.Speaker(inbox, self.listener)
-		signal.signal(signal.SIGINT, self.die)
-		
-	def die(self, sig, frame):
-		sys.exit(0)
-	
-	def run(self):
-		t = threading.Thread(target=self.listener.run, args=())
-		t.start()
-		self.speaker.run()
-
-class Parser():
-	def __init__(self, inbox, outbox, config):
-		self.reload_config(config)
-		self.inbox = inbox
-		self.outbox = outbox
-		self.source = re.compile(r'([^!]*)!?([^@]*)@?(.*)')
-		signal.signal(signal.SIGINT, self.die)
-		
-	def reload_config(self, config):
-		self.config = config
-		
-	def die(self, sig, frame):
-		sys.exit(0)
-		
-	def send(self, to, subject, body):
-		l = Letter(to, subject, body, "self.parser")
-		self.outbox.put(l)
-	def log(self, line, level):
-		self.send("module.bot.logger", "LOG", {'module': 'Parser', 'time': int(time.time()), 'text': line, 'level': level})
-		
-	def run(self):
-		while True:
-			l = self.inbox.recv()
-			if l.subject == "NEW LINE":
-				line = l.body['line']
-			elif l.subject == "RELOAD":
-				self.reload_config(l.body['config'])
-				continue
-			else: continue
-			self.log("new line '%s'" % line.strip(), "DEBUG")
-			
-			if line.startswith(':'): 
-				source, line = line[1:].split(' ', 1)
-			else: source = None
-
-			if ' :' in line: 
-				argstr, text = line.split(' :', 1)
-			else: argstr, text = line, ''
-			args = argstr.split()
-			
-			data = Data()
-			match = self.source.match(source or '')
-			data.nick, data.user, data.host = match.groups()
-
-			if len(args) > 1: 
-				target = args[1]
-			else: target = None
-			data.sender = {self.config['nick']: data.nick, None: None}.get(target, target)
-			data.args = tuple([text] + args)
-			
-			self.send("self.generator", "NEW IRC DATA", {'data': data})
-
-class Data():
-	def __init__(self):
-		pass
-
-class Generator():
-	def __init__(self, inbox, outbox, config):
-		self.reload_config(config)
-		self.inbox = inbox
-		self.outbox = outbox
-		signal.signal(signal.SIGINT, self.die)
-	
-	def reload_config(self, config):
-		self.config = config
-		
-	def die(self, sig, frame):
-		sys.exit(0)
-	
-	def send(self, to, subject, body):
-		l = Letter(to, subject, body, "self.generator")
-		self.outbox.put(l)
-	
-	def log(self, line, level):
-		self.send("module.bot.logger", "LOG", {'module': 'Generator', 'time': int(time.time()), 'text': line, 'level': level})
-	
-	def run(self):
-		while True:
-			l = self.inbox.recv()
-			if l.subject == "NEW IRC DATA":
-				data = l.body['data']
-			elif l.subject == "RELOAD":
-				self.reload_config(l.body['config'])
-				continue
-			else:
-				self.log("Got Erroneous letter. Subject: '%s'" % l.subject, "NOTICE")				
-				continue
-			event = Event(data.args[0], data, data.args[0], data.args[1], data.args[2:], self.config)
-			self.send("self.launcher", "NEW EVENT", {'event': event})
+class Letter:
+	def __init__(self,to, subject, body, sender=None):
+		self.sender = sender
+		self.to = to
+		self.to_f = to.split('.')
+		self.subject = subject
+		self.body = body
 
 class Event():
 	def __init__(self, text, data, bytes, event, args, config):
 		#s = str.__new__(cls, text)
-		self.sender = data.sender
-		self.nick = data.nick
-		self.host = data.host
-		self.user = data.user
+		self.sender = data['sender']
+		self.nick = data['nick']
+		self.host = data['host']
+		self.user = data['user']
 		self.event = event
 		self.bytes = bytes
 		self.match = None
@@ -271,13 +37,13 @@ class Event():
 		self.group = None #match.group
 		self.groups = None #match.groups
 		self.args = args
-		self.admin = data.nick in config['groups']['admin']
-		self.owner = data.nick == config['groups']['sysop']
-		if data.nick.lower() in config['passwd']:
-			self.username = data.nick.lower()
+		self.admin = self.nick in config['groups']['admin']
+		self.owner = self.nick == config['groups']['sysop']
+		if self.nick.lower() in config['passwd']:
+			self.username = self.nick.lower()
 		else:
 			self.username = 'nobody'
-		self.ugroups = config['passwd'].get(self.username, ['nobody']) # 0 groups, 1 password, 2 home
+		self.ugroups = config['passwd'].get(self.username, ['nobody'])
 
 class Launcher():
 	def __init__(self, conf_name):
@@ -303,10 +69,6 @@ class Launcher():
 		conf_file.close()
 	def reload_config(self, config):
 		self.config = config
-		self.send("self.communicator", "RELOAD", {'config': self.merge(self.config.get('Communicator', {}), self.config["Global"])})
-		self.send("self.parser", "RELOAD", {'config': self.merge(self.config.get('Parser', {}), self.config["Global"])})
-		self.send("self.generator", "RELOAD", {'config': self.merge(self.config.get('Generator', {}), self.config["Global"])})
-		self.send("self.post office", "RELOAD", {'config': self.merge(self.config.get('Post Office', {}), self.config["Global"])})
 	def merge(self, x,y):        
 		merged = dict(list(x.items()) + list(y.items()))
 		xkeys = x.keys()
@@ -357,30 +119,6 @@ class Launcher():
 		p.start()
 		self.send("self.post office", "Add", {'name': "self.launcher.%s" % p.pid, "queue": self.box_r})
 		self.log("Starting post office", "NOTICE")
-		
-		# generator
-		self.log("Starting generator", "NOTICE")
-		gbox = Pipe()
-		self.generator = Generator(gbox[0], self.outbox, dict(list(self.config.get('Generator', {}).items()) + list(self.config["Global"].items())))
-		p = Process(target=self.generator.run, args=())
-		p.start()
-		self.send("self.post office", "Add", {'name': "self.generator.%s" % p.pid, "queue": gbox[1]})
-		
-		# parser
-		self.log("Starting parser", "NOTICE")
-		pbox = Pipe()
-		self.parser = Parser(pbox[0], self.outbox, dict(list(self.config.get('Parser', {}).items()) + list(self.config["Global"].items())))
-		p = Process(target=self.parser.run, args=())
-		p.start()
-		self.send("self.post office", "Add", {'name': "self.parser.%s" % p.pid, "queue": pbox[1]})
-		
-		# listener
-		self.log("Starting communicator", "NOTICE")
-		lbox = Pipe()
-		self.communicator = Communicator(lbox[0], self.outbox, dict(list(self.config.get('Communicator', {}).items()) + list(self.config["Global"].items())))
-		p = Process(target=self.communicator.run, args=())
-		p.start()
-		self.send("self.post office", "Add", {'name': "self.communicator.%s" % p.pid, "queue": lbox[1]})
 		
 		for m in self.modules:
 			for func in m.functions:
@@ -461,11 +199,11 @@ class Launcher():
 					if os.path.isfile("modules/"+name+".py"):  # RFI
 						try:
 							self.load_module(name+".py")
-							self.send("self.communicator", "NEW IRC OUTPUT", {'message': "PRIVMSG %s :%s: modules.%s (version: %s)\r\n" % (letter.body['sender'], letter.body['nick'], name+".py", datetime.datetime.now())})
+							self.send("module.bot.communicator", "NEW IRC OUTPUT", {'message': "PRIVMSG %s :%s: modules.%s (version: %s)\r\n" % (letter.body['sender'], letter.body['nick'], name+".py", datetime.datetime.now())})
 						except Exception as e:
-							self.send("self.communicator", "NEW IRC OUTPUT", {'message': "PRIVMSG %s :%s: Error loading module %s: %s\r\n" % (letter.body['sender'], letter.body['nick'], name+".py", e)})
+							self.send("module.bot.communicator", "NEW IRC OUTPUT", {'message': "PRIVMSG %s :%s: Error loading module %s: %s\r\n" % (letter.body['sender'], letter.body['nick'], name+".py", e)})
 					else:
-						self.send("self.communicator", "NEW IRC OUTPUT", {'message': "PRIVMSG %s :%s: Error loading module %s: file doesn't exist\r\n" % (letter.body['sender'], letter.body['nick'], name+".py")})
+						self.send("module.bot.communicator", "NEW IRC OUTPUT", {'message': "PRIVMSG %s :%s: Error loading module %s: file doesn't exist\r\n" % (letter.body['sender'], letter.body['nick'], name+".py")})
 			elif letter.subject == "LAUNCH MODULE":
 				full_name = letter.body['name'].split(".")[1:]
 				full_name.insert("module", 0)
@@ -488,18 +226,6 @@ class Launcher():
 					if mod.name == mod_name:
 						if func_name in mod.acls.keys() and mod.acls[func_name]['group'] in ['sysop', 'admin']:
 							self.shutdown(letter.body)
-
-class Letter:
-	def __init__(self,to, subject, body, sender=None):
-		self.sender = sender
-		self.to = to
-		self.to_f = to.split('.')
-		self.subject = subject
-		self.body = body
-	def match(self, test):
-		if not self.sender:
-			return False
-		return test.match(self.sender)
 
 class Postoffice():
 	def __init__(self, queue, config):
@@ -679,17 +405,17 @@ class Module():
 			self.input = event
 			self.pid = pid
 			self.conf = conf
-			self.handlers = {'subject': [], 'sender': []}
+			self.handlers = {'subject': {}, 'sender': {}}
 		def write(self, args, text=None):
 			def safe(data): 
 				data = data.replace('\n', '')
 				data = data.replace('\r', '')
 				return data
 			args = [safe(arg) for arg in args]
-			if text is not None: 
+			if text is not None:
 				text = safe(text)
-				self.send("self.communicator", "NEW IRC OUTPUT", {'message': ' '.join(args) + ' :' + text + '\r\n'})
-			else: self.send("self.communicator", "NEW IRC OUTPUT", {'message': ' '.join(args) + '\r\n'})
+				self.send("module.bot.communicator", "NEW IRC OUTPUT", {'message': ' '.join(args) + ' :' + text + '\r\n'})
+			else: self.send("module.bot.communicator", "NEW IRC OUTPUT", {'message': ' '.join(args) + '\r\n'})
 
 		def msg(self, recipient, text):
 			self.write(('PRIVMSG', recipient), text)
@@ -697,9 +423,6 @@ class Module():
 			self.msg(self.input.sender, text)
 		def reply(self, text):
 			self.msg(self.input.sender, "%s: %s" % (self.input.nick, text))
-		def call(self, module_name, args):
-			d = Data()
-			self.send("self.generator", "NEW IRC DATA", {'data': d})
 		def send(self, to, subject, body):
 			l = Letter(to, subject, body, self.name)
 			self.outbox.put(l)
