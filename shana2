@@ -303,6 +303,7 @@ class Launcher():
 		conf_file.close()
 	def reload_config(self, config):
 		self.config = config
+		self.load_modules()
 		self.send("self.communicator", "RELOAD", {'config': self.merge(self.config.get('Communicator', {}), self.config["Global"])})
 		self.send("self.parser", "RELOAD", {'config': self.merge(self.config.get('Parser', {}), self.config["Global"])})
 		self.send("self.generator", "RELOAD", {'config': self.merge(self.config.get('Generator', {}), self.config["Global"])})
@@ -324,7 +325,7 @@ class Launcher():
 		sys.exit(0)
 	
 	def load_module(self, fn):
-		mod = Module(fn, dict(list(self.config.get("Modules", {}).items()) + list(self.config["Global"].items()) + list(self.config.get("Module.%s" % fn.rpartition(".")[0], {}).items())))
+		mod = Module(fn, self.merge(self.config.get("Modules", {}), self.merge(self.config["Global"], self.config.get("Module.%s" % fn.rpartition(".")[0], {}))))
 		for m in self.modules:
 			if m.name == mod.name:
 				self.modules.remove(m)
@@ -345,7 +346,7 @@ class Launcher():
 		q = Pipe()
 		p = Process(target=mod.start, args=(event, func, (q[0], self.outbox), mod.name))
 		p.start()
-		self.send("self.post office", "Add", {'name': "module.%s.%s.%s" % (mod.name, func.name, p.pid), "queue": q[1]})
+		self.send("self.post office", "Add", {'name': "module.%s.%s.%s" % (mod.name, func.name, p.pid), "queue": q[1], "service": func.service})
 		self.log("Launching module %s.%s.%s" % (mod.name, func.name, p.pid), "STATUS")
 		func.last_launched = time.time()
 		return p
@@ -396,7 +397,7 @@ class Launcher():
 		self.send("module.bot.logger", "LOG", {'module': 'Launcher', 'time': int(time.time()), 'text': line, 'level': level})
 	
 	def shutdown(self, args):
-		pass
+		sys.exit(0)
 	
 	def get_module_function(self, name):
 		if isinstance(name, list) or isinstance(name, tuple):
@@ -417,44 +418,21 @@ class Launcher():
 			letter = self.inbox.recv()
 			if letter.subject == "NEW EVENT":
 				event = letter.body['event']
-				remove = []
-				for tag, proclist in self.running.items():
-					for proc in proclist:
-						if not proc['proc'].is_alive():
-							proc['proc'].join(1)
-							proclist.remove(proc)
-					if len(proclist) == 0:
-						remove.append(tag)
-				for tag in remove:
-					del self.running[tag]
 				for m in self.modules:
 					for func in m.trigger(event):
-						if func.service and "module.%s.%s" % (m.name, func.name) in self.running.keys():
+						if func.service:
 							self.send("module.%s.%s" % (m.name, func.name), "NEW EVENT", {'event': event, 'modname': m.name, 'funcname': func.name, 'service': True})
 						else:
-							p = self.launch_module(m, func, event)
-							self.running.setdefault("module.%s.%s" % (m.name, func.name), [])
-							self.running["module.%s.%s" % (m.name, func.name)].append({'pid': p.pid, 'proc': p})
+							self.launch_module(m, func, event)
 			elif letter.subject == "WAKE":
 				mod, func = self.get_module_function(letter.body['letter'].to_f[:3])
 				if not func:
 					self.send("self.post office", "WAKE FAIL", {'letter': letter.body['letter']})
-					self.log("Badly formatted WAKE event %s" % letter.body['letter'].to, "ERROR")
-				full_name = letter.body['letter'].to
-				if full_name in self.running.keys() and len(self.running[full_name]) > 0:
-					self.log("WAKE event for module already awake sent to %s" % full_name, "DEBUG")
-					self.outbox.put(Letter(letter.body['letter'].to, letter.body['letter'].subject, letter.body["letter"].body, letter.body["letter"].sender))
+					self.log("Bad WAKE event %s" % letter.body['letter'].to, "ERROR")
 					continue
 
-				if not func.wake_on_letter:
-					self.send("self.post office", "WAKE FAIL", {'letter': letter.body['letter']})
-					self.log("Attempt to wake %s denied because function doesn't allow wakes" % letter.body['letter'].to, "CAUTION")
-
-				else:
-					p = self.launch_module(mod, func)
-					self.running.setdefault("module.%s.%s" % (mod.name, func.name), [])
-					self.running["module.%s.%s" % (mod.name, func.name)].append({'pid': p.pid, 'proc': p})
-					self.outbox.put(Letter(letter.body['letter'].to, letter.body['letter'].subject, letter.body["letter"].body, letter.body["letter"].sender))
+				self.launch_module(mod, func)
+				self.outbox.put(letter.body['letter'])
 
 			elif letter.subject == "RELOAD MODULE":
 				for name in letter.body['names']:
@@ -466,28 +444,17 @@ class Launcher():
 							self.send("self.communicator", "NEW IRC OUTPUT", {'message': "PRIVMSG %s :%s: Error loading module %s: %s\r\n" % (letter.body['sender'], letter.body['nick'], name+".py", e)})
 					else:
 						self.send("self.communicator", "NEW IRC OUTPUT", {'message': "PRIVMSG %s :%s: Error loading module %s: file doesn't exist\r\n" % (letter.body['sender'], letter.body['nick'], name+".py")})
-			elif letter.subject == "LAUNCH MODULE":
-				full_name = letter.body['name'].split(".")[1:]
-				full_name.insert("module", 0)
-				mod, func = self.get_module_function(full_name)
-				if func: self.launch_module(mod, func, letter.body.setdefault('args', {}))
-				else: self.log("Request to launch module '%s' from %s failed: No such module or function" % ('.'.join(full_name), letter.sender), "ERROR")
 			elif letter.subject == "LIST MODULES":
 				mods = {}
 				for mod in self.modules:
 					mods[mod.name] = [func.name for func in mod.functions]
 				self.send(letter.sender, "MODULES LIST", {'list': mods})
-			elif letter.subject == "SET CONF":
+			elif letter.subject == "RELOAD CONF":
 				self.reload_config(self.merge(self.config, letter.body['config']))
-			elif letter.subject == "SAVE CONF":
-				self.write_config()
+				self.log("Reloaded configuration", "NOTICE")
 			elif letter.subject == "SHUTDOWN":
-				if not letter.sender: continue
-				mod_name, func_name = letter.sender.split(".", 2)[1:]
-				for mod in self.modules:
-					if mod.name == mod_name:
-						if func_name in mod.acls.keys() and mod.acls[func_name]['group'] in ['sysop', 'admin']:
-							self.shutdown(letter.body)
+				if not letter.sender == "self.post office": continue
+				self.shutdown()
 
 class Letter:
 	def __init__(self,to, subject, body, sender=None):
