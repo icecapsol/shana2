@@ -346,7 +346,7 @@ class Launcher():
 		q = Pipe()
 		p = Process(target=mod.start, args=(event, func, (q[0], self.outbox), mod.name))
 		p.start()
-		self.send("self.post office", "Add", {'name': "module.%s.%s.%s" % (mod.name, func.name, p.pid), "queue": q[1], "service": func.service})
+		self.send("self.post office", "Add", {'name': "module.%s.%s.%s" % (mod.name, func.name, p.pid), "queue": q[1]})
 		self.log("Launching module %s.%s.%s" % (mod.name, func.name, p.pid), "STATUS")
 		func.last_launched = time.time()
 		return p
@@ -473,6 +473,7 @@ class Postoffice():
 		self.reload_config(config)
 		self.inbox = queue
 		self.boxes = {}
+		self.hold = {}
 		signal.signal(signal.SIGINT, self.die)
 	
 	def reload_config(self, config):
@@ -485,45 +486,46 @@ class Postoffice():
 		name, box = self.best_match(box_name.split("."), self.boxes, 0)
 		if name:
 			print("POST OFFICE: Error adding outbox for %s. Name exists" % name)
-			return False
-		self.boxes[box_name] = queue
-		return True
+			return None
+		self.boxes[box_name] = {"sock": queue}
+		return self.boxes[box_name]
 	
 	def rmbox(self, box_name):
 		name, box = self.best_match(box_name.split("."), self.boxes, 0)
 		if not name:
 			print("POST OFFICE: No outbox for %s." % name)
 			return False
-		try: box.send(Letter(name, "LAST LETTER", {}, "self.post office"))
+		try: box['sock'].send(Letter(name, "LAST LETTER", {}, "self.post office"))
 		except: pass
 		del self.boxes[name]
 		return True
 
 	def process(self, letter):
 		if letter.subject == "Add":
-			self.mkbox(letter.body['name'], letter.body["queue"])
-		elif letter.subject == "Remove":
+			new_box = self.mkbox(letter.body['name'], letter.body["queue"])
+			for name in list(self.hold.keys()):
+				if name in letter.body['name']:
+					for letter in self.hold[name]:
+						new_box['sock'].send(letter)
+					del self.hold[name]
+		elif letter.subject == "REMOVE":
 			self.rmbox(letter.body['name'])
 		elif letter.subject == "RELOAD":
 			self.reload_config(letter.body['config'])
 		elif letter.subject == "LIST BOXES":
 			name, box = self.best_match(letter.sender.split("."), self.boxes, 0)
-			try: box.send(Letter(letter.sender, "LIST BOXES", {'list': list(self.boxes.keys())}, "self.post office"))
-			except: pass
-		elif letter.subject == "TEST BOXES":
-			name, box = self.best_match(letter.body['query'], self.boxes, 0)
-			try: self.boxes[letter.sender].send(Letter(letter.sender, "TEST BOXES", {'match': name}, "self.post office"))
-			except: pass
-		elif letter.subject == "DEL BOX":
-			try: self.boxes[letter.sender].send(Letter(letter.sender, "DEL BOX", {'name': letter.body['name'], 'result': self.rmbox(letter.body['name'])}, "self.post office"))
+			try: box['sock'].send(Letter(letter.sender, "LIST BOXES", {'list': list(self.boxes.keys())}, "self.post office"))
 			except: pass
 		elif letter.subject == "WAKE FAIL":
 			name, box = self.best_match(letter.to_f, self.boxes, 0)
+			l = letter.body['letter']
 			if name:
-				l = letter.body['letter']
 				l.body['RTS'] = l.subject
 				l.subject = "RETURN TO SENDER"
-				box.send(l)
+				box['sock'].send(l)
+			for name in list(self.hold.keys()):
+				if name in l.to:
+					del self.hold[name]
 	
 	def best_match(self, name, dlist, level):
 		candidates = dict([(n, i) for n, i in dlist.items() if len(n.split(".")) >= level+1 and n.split(".")[level] == name[level]])
@@ -548,14 +550,17 @@ class Postoffice():
 			name, boxes = self.best_match(letter.to_f, self.boxes, 0)
 			if name:
 				for box in boxes:
-					box.send(letter)
-			else: # check if the module will wake up
+					box['sock'].send(letter)
+			else: # wake the module up
 				name, boxes = self.best_match(["self", "launcher"], self.boxes, 0)
 				if not name:
 					self.inbox.put(letter)
 					time.sleep(0.01)
 					continue
-				boxes[0].send(Letter("self.launcher", "WAKE", {"letter": letter}))
+				boxes[0]['sock'].send(Letter("self.launcher", "WAKE", {"letter": letter}))
+				# now that we are waiting for the module to wake up, save the letter
+				hold = self.hold.setdefault(letter.to, [])
+				hold.append(letter)
 
 class ACL():
 	def __init__(self, module):
@@ -581,7 +586,6 @@ class Module():
 			self.commands = getattr(self.func, 'commands', [])
 			self.startup = getattr(self.func, 'startup', False)
 			self.service = getattr(self.func, 'service', False)
-			self.wake_on_letter = getattr(self.func, 'wake_on_letter', False)
 			quota = getattr(self.func, 'quota', (0, 0, 0))
 			if isinstance(quota, int) or isinstance(quota, float):
 				quota = (self.func.quota, self.func.quota, self.func.quota)
@@ -820,7 +824,7 @@ class Module():
 					break
 			else: report.append('source unknown')
 			bot.say(report[0] + ' (' + report[1] + ')')
-		try: bot.send("self.post office", "Remove", {'name': "module.%s.%s" % (mod_name, func.name)})
+		try: bot.send("self.post office", "REMOVE", {'name': "module.%s.%s" % (mod_name, func.name)})
 		except: pass
 
 conf_name = "shana2.conf"
