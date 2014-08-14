@@ -15,7 +15,7 @@ r_from = re.compile(r'(?i)([+-]\d+):00 from')
 
 def location(name): 
    name = urllib.parse.quote(name.encode('utf-8'))
-   uri = 'http://ws.geonames.org/searchJSON?q=%s&maxRows=1' % name
+   uri = 'http://ws.geonames.org/searchJSON?q=%s&maxRows=1&username=shana_chan' % name
    for i in range(10): 
       u = urllib.request.urlopen(uri)
       if u is not None: break
