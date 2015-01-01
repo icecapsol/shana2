@@ -24,21 +24,19 @@ def http(shana, event):
 		shana.log("Ignoring link sent in pm", 7)
 		return
 	
-	uri_file = open('modules/URIs.txt', 'r')
-	uri_list = uri_file.readlines()
-	while uri_list[-1] == '\n':
-		uri_list.pop()
+	# get the file we should be appending to
+	today = datetime.date.today()
+	uri_filename = 'modules/URIs %d-%02d.txt' % (today.year, today.month)
+	if not os.path.exists(uri_filename):
+		uri_file = open(uri_filename, 'w')
+	else:
+		uri_file = open(uri_filename, 'r')
+	uri_count = len(uri_file.readlines())
 	uri_file.close()
-	if datetime.datetime.today().month > datetime.datetime.fromtimestamp(int(uri_list[-1].split('\t', 2)[1])).month or datetime.datetime.today().year > datetime.datetime.fromtimestamp(int(uri_list[-1].split('\t', 2)[1])).year and int(uri_list[-1].split('\t', 2)[1]) != 0:
-		uri_file = open('modules/URIs.txt', 'a')
-		uri_file.write("0\t0\t==%s==\n" % datetime.datetime.today().strftime(' %B %Y '))
-		uri_file.close()
-		uri_list.append("0\t0\t==%s==\n" % datetime.datetime.today().strftime(' %B %Y '))
-	uri_number = int(uri_list[-1].partition("\t")[0])+1
 	
 	def new_uri(args):
-		uri_file = open('modules/URIs.txt', 'a')
-		uri_file.write('%s\t%s\t%s\t%s\n' % (str(uri_number), str(int(time.time())), event.nick, '\t'.join(args).replace('\n', '')))
+		uri_file = open(uri_filename, 'a')
+		uri_file.write('%s\t%s\t%s\t%s\n' % (str(uri_count+1), str(int(time.time())), event.nick, '\t'.join(args).replace('\n', '')))
 		uri_file.close()
 
 	def fourchan(url):
@@ -56,10 +54,10 @@ def http(shana, event):
 			except: topic = ""
 			
 			if topic:
-				shana.say("[URI %s] 034chan %s | %s" % (uri_number, title, topic))
+				shana.say("[URI %s] 034chan %s | %s" % (uri_count+1, title, topic))
 				new_uri([url, "034chan %s | %s\n"  % (title, topic)])
 			else:
-				shana.say("[URI %s] 034chan %s" % (uri_number, title))
+				shana.say("[URI %s] 034chan %s" % (uri_count+1, title))
 				new_uri([url, "034chan %s\n"  % title])
 	def fourchan_images(url):
 		if url.find("/b/") != -1:
@@ -79,14 +77,14 @@ def http(shana, event):
 				shana.log("Exception parsing image: %s" % e, 4)
 				return
 			
-			shana.say("[URI %s] 034chan: %sx%s %s %s" % (uri_number, w, h, bytes_to_better_bytes(image_size), t))
+			shana.say("[URI %s] 034chan: %sx%s %s %s" % (uri_count+1, w, h, bytes_to_better_bytes(image_size), t))
 			new_uri([url, "034chan %sx%s %s %s\n" % (w, h, bytes_to_better_bytes(image_size), t)])
 		if url.rsplit(".", 1)[1].lower() == "webm":
 			image_url = urlopen(url)
 			image_info = image_url.info()
 			image_size = int(image_info["Content-Length"])
 			
-			shana.say("[URI %s] 034chan: %s WebM" % (uri_number, bytes_to_better_bytes(image_size)))
+			shana.say("[URI %s] 034chan: %s WebM" % (uri_count+1, bytes_to_better_bytes(image_size)))
 			new_uri([url, "034chan %s WebM\n" % bytes_to_better_bytes(image_size)])
 
 	def newegg(url):
@@ -100,7 +98,7 @@ def http(shana, event):
 			price = "$"+soup.find(id="singleFinalPrice").get("content")
 		title = soup.find("title").get_text()
 
-		shana.say("[URI %s] 3Title: %s %s" % (uri_number, title, price))
+		shana.say("[URI %s] 3Title: %s %s" % (uri_count+1, title, price))
 		new_uri([url, "3Title: %s %s\n" % (title, price)])
 	
 	def flickr(url):
@@ -109,21 +107,21 @@ def http(shana, event):
 		new_url = page_url.geturl()[:-1]
 		page_url.close()
 		
-		shana.say("[URI %s] 4Flickr: %s's photostream" % (uri_number, new_url.rpartition("/")[0].rpartition("/")[2]))
-		new_uri([url, "[URI %s] Flickr: %s's photostream" % (uri_number, new_url.rpartition("/")[0].rpartition("/")[2])])
+		shana.say("[URI %s] 4Flickr: %s's photostream" % (uri_count+1, new_url.rpartition("/")[0].rpartition("/")[2]))
+		new_uri([url, "[URI %s] Flickr: %s's photostream" % (uri_count+1, new_url.rpartition("/")[0].rpartition("/")[2])])
 		
 	def youtube(url):
 		if url.find("v=") != -1: page_url = urlopen("http://gdata.youtube.com/feeds/api/videos/"+url.partition("v=")[2].partition("&")[0])
 		elif url.find("/v/") != -1: page_url = urlopen("http://gdata.youtube.com/feeds/api/videos/"+url.partition("/v/")[2].partition("&")[0])
 		elif url.find("/user/") != -1:
-			shana.say("[URI %s] 1,0You0,4tube %s's Channel" % (uri_number, url.partition("/user/")[2]))
+			shana.say("[URI %s] 1,0You0,4tube %s's Channel" % (uri_count+1, url.partition("/user/")[2]))
 			new_uri([url, "1,0You0,4tube %s's Channel\n" % url.partition("/user/")[2]])
 			return
 		else:
 			page_url = urlopen(url)
 			soup = BS(page_url.read(8196))
 			title = soup.find("title").get_text().strip()
-			shana.say("[URI %s] 1,0You0,4tube %s" % (uri_number, title))
+			shana.say("[URI %s] 1,0You0,4tube %s" % (uri_count+1, title))
 			new_uri([url, "1,0You0,4tube %s\n" % title])
 			return
 
@@ -142,7 +140,7 @@ def http(shana, event):
 		else:
 			thumbs_up = int( ((float(soup.find("gd:rating")['average']) - 1.0) / 4.0) * rates )
 		
-		shana.say("[URI %s] 1,0You0,4tube %s [%d:%02d] - %s views %d 3☺ %d 4☹" % (uri_number, title, minutes, seconds, views, thumbs_up, rates - thumbs_up))
+		shana.say("[URI %s] 1,0You0,4tube %s [%d:%02d] - %s views %d 3☺ %d 4☹" % (uri_count+1, title, minutes, seconds, views, thumbs_up, rates - thumbs_up))
 		new_uri([url, "1,0You0,4tube %s [%d:%02d]\n" % (title, minutes, seconds)])
 
 	def omploader(url):
@@ -155,7 +153,7 @@ def http(shana, event):
 		'uploaded': stuff[5].rpartition('</div>')[0].rpartition('>')[2],
 		'type': stuff[6].rpartition('</div>')[0].rpartition('>')[2]}
 		
-		shana.say("[URI %s] 3Ompldr: %s [%s] - %s hits" % (uri_number, info['name'], info['size'], info['hits']))
+		shana.say("[URI %s] 3Ompldr: %s [%s] - %s hits" % (uri_count+1, info['name'], info['size'], info['hits']))
 		new_uri([url, "3Ompldr: %s [%s] - %s hits" % (info['name'], info['size'], info['hits'])])
 
 	def gelbooru(url):
@@ -176,7 +174,7 @@ def http(shana, event):
 		
 		title = "%s Author%s: %s Origin%s: %s Character%s: %s" % (warn, author_pl, ', '.join(authors), origin_pl, ', '.join(origins), char_pl, ', '.join(chars))
 
-		shana.say("[URI %s] 3Gelbooru: %s" % (uri_number, title))
+		shana.say("[URI %s] 3Gelbooru: %s" % (uri_count+1, title))
 		new_uri([url, "3Title: %s\n" % title])
 		return
 	
@@ -196,7 +194,7 @@ def http(shana, event):
 		
 		title = "%s Author%s: %s Origin%s: %s Character%s: %s" % (warn, author_pl, ', '.join(authors), origin_pl, ', '.join(origins), char_pl, ', '.join(chars))
 
-		shana.say("[URI %s] 3Danbooru: %s" % (uri_number, title))
+		shana.say("[URI %s] 3Danbooru: %s" % (uri_count+1, title))
 		new_uri([url, "3Title: %s\n" % title])
 		return
 
@@ -220,7 +218,7 @@ def http(shana, event):
 		#page = page_url.read(4096)
 		if not title: return
 
-		shana.say("[URI %s] 3Title: %s" % (uri_number, title))
+		shana.say("[URI %s] 3Title: %s" % (uri_count+1, title))
 		new_uri([url, "3Title: %s\n" % title])
 		return
 
@@ -239,7 +237,7 @@ def http(shana, event):
 				except Exception as e:
 					shana.log("Exception retrieving link: %s" % e, 2)
 				caught = 1
-				uri_number += 1
+				uri_count += 1
 				break
 		if caught == 0:
 			try: 
@@ -248,7 +246,7 @@ def http(shana, event):
 				shana.say('HTTP Error %d' % e.code)
 			except Exception as e:
 				shana.log("Exception retrieving link: %s" % e, 2)
-			uri_number += 1
+			uri_count += 1
 		caught = 0
 
 http.name = 'http'
