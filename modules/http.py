@@ -1,7 +1,7 @@
 ﻿#!/usr/bin/python
 import urllib.request
 from urllib.request import urlopen
-import re, time, datetime, subprocess
+import re, time, datetime, subprocess, os
 from bs4 import BeautifulSoup as BS
 
 def http(shana, event):
@@ -29,8 +29,7 @@ def http(shana, event):
 	uri_filename = 'modules/URIs %d-%02d.txt' % (today.year, today.month)
 	if not os.path.exists(uri_filename):
 		uri_file = open(uri_filename, 'w')
-	else:
-		uri_file = open(uri_filename, 'r')
+	uri_file = open(uri_filename, 'r')
 	uri_count = len(uri_file.readlines())
 	uri_file.close()
 	
@@ -157,7 +156,7 @@ def http(shana, event):
 		new_uri([url, "3Ompldr: %s [%s] - %s hits" % (info['name'], info['size'], info['hits'])])
 
 	def gelbooru(url):
-		if hasattr(re.search('jpg|png|gif|swf', url), "group"): return
+		if hasattr(re.search('jpg|png|gif|swf|webm', url), "group"): return
 		gelpage = urlopen(url)
 		try:
 			soup = BS(gelpage)
@@ -172,27 +171,27 @@ def http(shana, event):
 		if soup.find("li", text=re.compile("Rating")).get_text() == "Rating: Safe": warn = ""
 		else: warn = "[NSFW]"
 		
-		title = "%s Author%s: %s Origin%s: %s Character%s: %s" % (warn, author_pl, ', '.join(authors), origin_pl, ', '.join(origins), char_pl, ', '.join(chars))
+		title = "%s Artist%s: %s Origin%s: %s Character%s: %s" % (warn, author_pl, ', '.join(authors), origin_pl, ', '.join(origins), char_pl, ', '.join(chars))
 
 		shana.say("[URI %s] 3Gelbooru: %s" % (uri_count+1, title))
 		new_uri([url, "3Title: %s\n" % title])
 		return
 	
 	def danbooru(url):
-		if hasattr(re.search('jpg|png|gif|swf', url), "group"): return
+		if hasattr(re.search('jpg|png|gif|swf|webm', url), "group"): return
 		danpage = urlopen(url)
 		soup = BS(danpage)
 		
-		authors = [a.find_all("a")[1].get_text() for a in soup.find_all("li", "tag-type-artist")]
+		authors = [a.find_all("a")[1].get_text() for a in soup.find_all("li", "category-1")]
 		author_pl = "s" if len(authors) > 1 else ""
-		origins = [o.find_all("a")[1].get_text() for o in soup.find_all("li", "tag-type-copyright")]
+		origins = [o.find_all("a")[1].get_text() for o in soup.find_all("li", "category-3")]
 		origin_pl = "s" if len(origins) > 1 else ""
-		chars = [c.find_all("a")[1].get_text() for c in soup.find_all("li", "tag-type-character")]
+		chars = [c.find_all("a")[1].get_text() for c in soup.find_all("li", "category-4")]
 		char_pl = "s" if len(chars) > 1 else ""
 		if soup.find("li", text=re.compile("Rating")).get_text() == "Rating: Safe": warn = ""
 		else: warn = "[NSFW]"
 		
-		title = "%s Author%s: %s Origin%s: %s Character%s: %s" % (warn, author_pl, ', '.join(authors), origin_pl, ', '.join(origins), char_pl, ', '.join(chars))
+		title = "%s Artist%s: %s Origin%s: %s Character%s: %s" % (warn, author_pl, ', '.join(authors), origin_pl, ', '.join(origins), char_pl, ', '.join(chars))
 
 		shana.say("[URI %s] 3Danbooru: %s" % (uri_count+1, title))
 		new_uri([url, "3Title: %s\n" % title])
