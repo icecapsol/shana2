@@ -13,6 +13,7 @@ http://inamidst.com/phenny/
 import sys, os, re, time, imp, datetime, traceback, getopt, signal, locale
 import yaml
 from multiprocessing import Process, Pipe, Queue
+import pickle, struct
 
 class Letter:
 	def __init__(self,to, subject, body, sender=None):
@@ -44,6 +45,72 @@ class Event():
 		else:
 			self.username = 'nobody'
 		self.ugroups = config['passwd'].get(self.username, ['nobody'])
+
+class Connection():
+	def __init__(self, name, addr, family=socket.AF_INET, protocol=socket.SOCK_STREAM):
+		self.name = name
+		self.addr = addr
+		self.family = family
+		self.protocol = protocol
+		self.sock = None
+		self.establish_connection()
+		self.register()
+
+	def establish_connection(self, attempts=5, timeout=30):
+		start = time.time()
+		attempt = 0
+		self.connected = self.connect()
+		while time.time() < start + timeout and not self.connected:
+			time.sleep(max([0, start + 2**attempt - time.time()])
+			self.connected = self.connect()
+			attempt += 1
+
+	def connect(self):
+		self.sock = socket.socket(self.family, self.protocol)
+		if self.protocol == socket.SOCK_DGRAM: return True
+		try:
+			self.connect(addr)
+		except:
+			self.sock = None
+			return False
+		return True
+
+	def register(self):
+		if self connected:
+			self.send(self.name)
+
+	def send(self, obj):
+		pdata = pickle.dumps(obj, 2)
+		try:
+			sdata = struct.pack(">H", len(pdata)) + pdata
+			sent = 0
+			while sent < len(sdata):
+				if self.protocol == socket.SOCK_STREAM:
+					sent += self.sock.send(sdata[sent:])
+				else:
+					sent += self.sock.sendto(sdata[sent:], self.address)
+		except Exception as e:
+			self.close()
+			raise e
+
+	def recv(self):
+		try:
+			rlen_bytes = self.sock.recv(2)
+		except:
+			self.close()
+			return
+		if not rlen:
+			self.close()
+			return
+		rlen = struct.unpack(">H", rlen_bytes)
+		while len(rdata) < rlen:
+			rdata += self.sock.read(rlen - len(rdata))
+		return pickle.loads(rdata, 2)
+
+	def close(self):
+		self.sock.close()
+		self.connected = False
+		self.sock = None
 
 class Launcher():
 	def __init__(self, conf_name):
