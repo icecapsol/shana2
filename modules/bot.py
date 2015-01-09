@@ -132,7 +132,7 @@ def communicator(shana, event):
 					self.comm.reload_config(letter.body['config'])
 					self.bot.log("Reloading Listener's configuration", "NOTICE")
 	
-	def die(self, sig, frame):
+	def die(self, sig):
 		sys.exit(0)
 		
 	listener = Listener(shana)
@@ -307,7 +307,7 @@ def logger(shana, event):
 	for out in shana.conf['outputs']:
 		outputs.append(Output(out['name'], out['output'], out.get('mask', []), out.get('module mask', [])))
 	while True:
-		l = shana.inbox.recv()
+		l = shana.recv()
 		if l.subject == "OUTPUT":
 			out = [out for out in outputs if out.name == l.body['name']]
 			if len(out) == 0:
