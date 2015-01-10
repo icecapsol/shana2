@@ -413,15 +413,12 @@ class Postoffice():
 						self.boxes.remove(c)
 						continue
 					
-					#print(letter.subject)
-					#print([b.name for b in self.boxes])
 					boxes = self.best_match(letter.to)
 					holds = self.best_match(letter.to, self.holds)
 
 					if boxes:
 						for box in boxes:
 							box.send(letter)
-							#print(box.name)
 					elif holds: # store it if we're waiting for it to wake up
 						for hold in holds:
 							hold.letters.append(letter)
@@ -591,10 +588,25 @@ class Module():
 				return True
 
 	def start(self, event, func):
-		if hasattr(os, 'getppid'):
-			pid = os.getppid()
-		else:
-			pid = os.getpid()
+		# daemonize
+		try: pid = os.fork()
+		except: sys.exit(-1)
+		if pid != 0:
+			sys.exit(0)
+		
+		pid = os.getpid()
+		log_file = open("logs/%s.log" % '.'.join(["module", self.name, func.name, str(pid)]), "w")
+		sid = os.setsid()
+		
+		sys.stdout.flush()
+		sys.stderr.flush()
+		si = open("/dev/null", 'r')
+		so = open("/dev/null", 'a+')
+		se = open("/dev/null", 'a+b', 0)
+		os.dup2(si.fileno(), sys.stdin.fileno())
+		os.dup2(so.fileno(), sys.stdout.fileno())
+		os.dup2(se.fileno(), sys.stderr.fileno())
+		
 		bot = Module.Bot(event, ["module", self.name, func.name], pid, self.config)
 		if event and hasattr(event, "bytes"):
 			if func.commands:
@@ -628,6 +640,7 @@ class Module():
 		except:
 			trace = traceback.format_exc()
 			for line in trace.split('\n'):
+				log_file.write(line+'\n')
 				bot.log(line, "ERROR")
 			lines = list(reversed(trace.splitlines()))
 			report = [lines[0].strip()]
@@ -638,11 +651,12 @@ class Module():
 					break
 			else: report.append('source unknown')
 			try:
-				print(report[0] + ' (' + report[1] + ')')
+				log_file.write(report[0] + ' (' + report[1] + ')')
 				bot.say(report[0] + ' (' + report[1] + ')')
 			except: pass # services have no event!
 		try: bot.connection.close()
 		except: pass
+		log_file.close()
 
 conf_name = "shana2.conf"
 
