@@ -211,22 +211,54 @@ generator.startup = True
 generator.service = True
 
 def store(shana, event):
-	store = {}
+	records = {}
 	while True:
 		l = shana.recv()
-		if l.subject == "STORE":
-			store[l.body['name']] = l.body['value']
-		elif l.subject == "SET DEFAULT":
-			if l.body['name'] in store.keys():
-				shana.send(l.sender, "VARIABLE", {'name': l.body['name'], 'value': store[l.body['name']], 'error': None})
+		if l.subject == "GET":
+			rname = l.body['name']
+			record = records.get(rname, {})
+
+			shana.send(l.sender, "GET", {'name': rname, 'value': record.get('value', None), 'error': None})
+
+		elif l.subject == "PUT":
+			rname = l.body['name']
+			record = records.get(rname, {})
+			expire = record.get("lock-expire", 0)
+			if expire > int(time.time()):
+				owner = record.get("lock-owner", '')
+				if l.sender != owner:
+					shana.send(l.sender, "PUT", {'name': rname, 'value': record.get('value', None), 'error': "locked"})
+					continue
+			record['value'] = l.body['value']
+			records[rname] = record
+			shana.send(l.sender, "PUT", {'name': rname, 'value': record.get('value', None), 'error': None})
+
+		if l.subject == "ACQUIRE":
+			rname = l.body['name']
+			record = records.get(rname, {})
+			owner = record.get("lock-owner", '')
+			if owner and owner != l.sender:
+				shana.send(l.sender, "ACQUIRE", {'name': rname, 'value': record.get('value', None), 'error': "locked"})
 			else:
-				store[l.body['name']] = l.body['value']
-				shana.send(l.sender, "VARIABLE", {'name': l.body['name'], 'value': store[l.body['name']], 'error': "Var set"})
-		elif l.subject == "LOAD":
-			if l.body['name'] in store.keys():
-				shana.send(l.sender, "VARIABLE", {'name': l.body['name'], 'value': store[l.body['name']], 'error': None})
-			else:
-				shana.send(l.sender, "VARIABLE", {'name': l.body['name'], 'value': None, 'error': "Not set"})
+				record['lock-owner'] = l.sender
+				record['lock-expire'] = int(time.time()) + 5 * 60
+				records[rname] = record
+				shana.send(l.sender, "ACQUIRE", {'name': rname, 'value': record.get('value', None), 'error': None})
+
+		elif l.subject == "RELEASE":
+			rname = l.body['name']
+			record = records.get(rname, {})
+			expire = record.get("lock-expire", 0)
+			if expire > int(time.time()):
+				owner = record.get("lock-owner", '')
+				if l.sender != owner:
+					shana.send(l.sender, "RELEASE", {'name': rname, 'value': record.get('value', None), 'error': "locked"})
+					continue
+			record['value'] = l.body['value']
+			record['lock-owner'] = ''
+			record['lock-expire'] = 0
+			records[rname] = record
+			shana.send(l.sender, "RELEASE", {'name': rname, 'value': record.get('value', None), 'error': None})
 
 store.name = 'store'
 store.wake_on_letter = True

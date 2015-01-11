@@ -3,17 +3,17 @@ import random, time
 
 def macfagstatus(shana, event):
 	if not event.group(0).startswith("."): return
-	shana.send("module.bot.store", "SET DEFAULT", {'name': "module.store.last", 'value': 0})
-	shana.send("module.bot.store", "SET DEFAULT", {'name': "module.store.rank", 'value': 0})
-	shana.send("module.bot.store", "SET DEFAULT", {'name': "module.store.said", 'value': ''})
-	shana.send("module.bot.store", "SET DEFAULT", {'name': "module.store.cooldown", 'value': 0})
+	shana.send("module.bot.store", "GET", {'name': "module.store.last"})
+	shana.send("module.bot.store", "GET", {'name': "module.store.rank"})
+	shana.send("module.bot.store", "GET", {'name': "module.store.said"})
+	shana.send("module.bot.store", "GET", {'name': "module.store.cooldown"})
 	
 	for i in range(4):
-		l = shana.recv(subject=["VARIABLE",])
-		if l.body['name'] == "module.store.last": last = l.body['value']
-		elif l.body['name'] == "module.store.rank": rank = l.body['value']
-		elif l.body['name'] == "module.store.said": said = l.body['value']
-		elif l.body['name'] == "module.store.cooldown": cooldown = l.body['value']
+		l = shana.recv(subject=["GET",])
+		if l.body['name'] == "module.store.last": last = l.body['value'] if l.body['value'] else 0
+		elif l.body['name'] == "module.store.rank": rank = l.body['value'] if l.body['value'] else 0
+		elif l.body['name'] == "module.store.said": said = l.body['value'] if l.body['value'] else ''
+		elif l.body['name'] == "module.store.cooldown": cooldown = l.body['value'] if l.body['value'] else 0
 	
 	status = random.randint(0, 11)
 	ut_told = ['4DOUBLE TOLD', 
@@ -51,19 +51,19 @@ def macfagstatus(shana, event):
 	else:
 		if time.time() - last < 30 and event.group(0).strip() == said and cooldown < time.time():
 			shana.say(ut_told[rank])
-			shana.send("module.bot.store", "STORE", {'name': "module.store.last", 'value': time.time()})
-			shana.send("module.bot.store", "STORE", {'name': "module.store.rank", 'value': rank+1})
+			shana.send("module.bot.store", "PUT", {'name': "module.store.last", 'value': time.time()})
+			shana.send("module.bot.store", "PUT", {'name': "module.store.rank", 'value': rank+1})
 			if rank+1 == len(ut_told):
-				shana.send("module.bot.store", "STORE", {'name': "module.store.cooldown", 'value': time.time()+240})
-				shana.send("module.bot.store", "STORE", {'name': "module.store.rank", 'value': 0})
+				shana.send("module.bot.store", "PUT", {'name': "module.store.cooldown", 'value': time.time()+240})
+				shana.send("module.bot.store", "PUT", {'name': "module.store.rank", 'value': 0})
 			return
 		elif not cooldown < time.time():
 			shana.say("Told-o-meter cooling down")
 			return
 		else:
-			shana.send("module.bot.store", "STORE", {'name': "module.store.last", 'value': time.time()})
-			shana.send("module.bot.store", "STORE", {'name': "module.store.rank", 'value': 0})
-			shana.send("module.bot.store", "STORE", {'name': "module.store.said", 'value': event.group(0).strip()})
+			shana.send("module.bot.store", "PUT", {'name': "module.store.last", 'value': time.time()})
+			shana.send("module.bot.store", "PUT", {'name': "module.store.rank", 'value': 0})
+			shana.send("module.bot.store", "PUT", {'name': "module.store.said", 'value': event.group(0).strip()})
 		
 		if status == 5:
 			shana.msg(event.sender, "PENDING...")
