@@ -10,9 +10,10 @@ Licensed under the Eiffel Forum License 2.
 http://inamidst.com/phenny/
 """
 
-import sys, os, re, time, imp, datetime, traceback, getopt, signal, locale
+import sys, os, re, time, imp, datetime, traceback, getopt, signal, locale, socket, select
 import yaml
 from multiprocessing import Process, Pipe, Queue
+import pickle, struct
 
 class Letter:
 	def __init__(self,to, subject, body, sender=None):
@@ -45,10 +46,180 @@ class Event():
 			self.username = 'nobody'
 		self.ugroups = config['passwd'].get(self.username, ['nobody'])
 
+class Connection():
+	def __init__(self, name, addr, listen=False, family='inet', protocol='tcp', sock=None):
+		self.name = name
+		self.address = addr
+		if family == 'inet':
+			self.family = socket.AF_INET
+		else:
+			self.family = socket.AF_UNIX
+		if protocol == 'tcp':
+			self.protocol = socket.SOCK_STREAM
+		else:
+			self.protocol = socket.SOCK_DGRAM
+		self.sock = sock
+		self.letters = []
+		self.handlers = {'subject': {}, 'sender': {}}
+		if sock:
+			pass
+		elif listen:
+			self.listen()
+		else:
+			self.establish_connection()
+			self.register()
+
+	def fileno(self):
+		return self.sock.fileno()
+
+	def listen(self):
+		self.sock = socket.socket(self.family, self.protocol)
+		if self.family == socket.AF_UNIX:
+			if os.path.exists(self.address):
+				os.remove(self.address)
+				
+		self.sock.bind(self.address)
+		if self.protocol == socket.SOCK_STREAM:
+			self.sock.listen(2)
+
+	def establish_connection(self, attempts=5, timeout=10):
+		start = time.time()
+		attempt = 0
+		self.connected = self.connect()
+		while time.time() < start + timeout and not self.connected:
+			time.sleep(max([0, start + 2**attempt - time.time()]))
+			self.connected = self.connect()
+			attempt += 1
+
+	def connect(self):
+		self.sock = socket.socket(self.family, self.protocol)
+		if self.protocol == socket.SOCK_DGRAM: return True
+		try:
+			self.sock.connect(self.address)
+		except:
+			self.sock = None
+			return False
+		return True
+
+	def register(self):
+		if self.connected:
+			self.send(Letter("self.post office", "REGISTER", None, self.name))
+
+	def register_handler(self, func, subject=None, sender=None):
+		if subject:
+			if isinstance(subject, str):
+				h = self.handlers['subject'].setdefault(subject, [])
+				h.append(func)
+				self.handlers['subject'][subject] = h
+			else:
+				for subj in subject:
+					h = self.handlers['subject'].setdefault(subj, [])
+					h.append(func)
+					self.handlers['subject'][subj] = h
+		if sender:
+			if isinstance(sender, str):
+				h = self.handlers['sender'].setdefault(sender, [])
+				h.append(func)
+				self.handlers['sender'][sender] = h
+			else:
+				for send in sender:
+					h = self.handlers['sender'].setdefault(send, [])
+					h.append(func)
+					self.handlers['sender'][send] = h
+
+	def send(self, obj):
+		pdata = pickle.dumps(obj, 2)
+		try:
+			sdata = struct.pack(">H", len(pdata)) + pdata
+			sent = 0
+			while sent < len(sdata):
+				if self.protocol == socket.SOCK_STREAM:
+					sent += self.sock.send(sdata[sent:])
+				else:
+					sent += self.sock.sendto(sdata[sent:], self.address)
+		except Exception as e:
+			self.close()
+			raise e
+
+	def filter(self, subject=[], sender=[]):
+		by_subject = [mletter for mletter in self.letters if len([True for filt in subject if re.match(filt, mletter.subject)]) > 0]
+		if by_subject:
+			return by_subject[0]
+		by_sender = [mletter for mletter in self.letters if len([True for filt in sender if re.match(filt, mletter.sender)]) > 0]
+		if by_sender:
+			return by_sender[0]
+		if self.letters:
+			return self.letters[0]
+
+	def recv(self, subject=[], sender=[], block=True):
+		letter = self.filter(subject, sender)
+		if letter:
+			self.letters.remove(letter)
+			return letter
+		
+		while True:
+			old_to = self.sock.gettimeout()
+			rlen_bytes = None
+			try:
+				if not block: self.sock.settimeout(0.0)
+				rlen_bytes = self.sock.recv(2)
+				if not block: self.sock.settimeout(old_to)
+			except socket.timeout:
+				self.sock.settimeout(old_to)
+				break
+			except:
+				self.close()
+				return
+			if not rlen_bytes:
+				self.close()
+				return
+			rlen = struct.unpack(">H", rlen_bytes)[0]
+			rdata = bytes()
+			while len(rdata) < rlen:
+				rdata += self.sock.recv(rlen - len(rdata))
+			letter = pickle.loads(rdata)
+			self.letters.append(letter)
+			
+			letter = self.filter(subject, sender)
+			if letter:
+				self.letters.remove(letter)
+				return letter
+			
+		return None
+
+	def loop(self):
+		def callback(funcs, letter):
+			for func in funcs:
+				try: func(letter)
+				except Exception as e:
+					self.log("Exception in callback %s: %s" % (func.__name__, e), "ERROR")
+
+		while True:
+			l = self.recv()
+			hits = [self.handlers['subject'][hit] for hit in self.handlers['subject'].keys() if hit == l.subject]
+			hits.extend([self.handlers['sender'][hit] for hit in self.handlers['sender'].keys() if hit == l.sender])
+			
+			for hit in hits:
+				callback(hit, l)
+
+	def accept(self):
+		sock, addr = self.sock.accept()
+		c = Connection(None, addr, sock=sock)
+		c.family = self.family
+		c.protocol = self.protocol
+		c.connected = True
+		
+		letter = c.recv()
+		c.name = letter.sender
+		return c
+
+	def close(self):
+		self.sock.close()
+		self.connected = False
+		self.sock = None
+
 class Launcher():
 	def __init__(self, conf_name):
-		self.inbox, self.box_r = Pipe()
-		self.outbox = Queue(16386) # PO's inbox
 		self.running = {}
 		signal.signal(signal.SIGINT, self.die)
 		self.locale_check()
@@ -102,23 +273,22 @@ class Launcher():
 				trace = traceback.format_exc()
 				print(trace)
 				exceptions.append(fn)
-		self.log("Loaded %d modules (%d errors)" % (len(self.modules), len(exceptions)), "NOTICE")
+		#self.log("Loaded %d modules (%d errors)" % (len(self.modules), len(exceptions)), "NOTICE")
 	
 	def launch_module(self, mod, func, event=None):
-		q = Pipe()
-		p = Process(target=mod.start, args=(event, func, (q[0], self.outbox), mod.name))
+		p = Process(target=mod.start, name="%s.%s" % (mod.name, func.name), args=(event, func))
 		p.start()
-		self.send("self.post office", "Add", {'name': "module.%s.%s.%s" % (mod.name, func.name, p.pid), "queue": q[1]})
 		self.log("Launching module %s.%s.%s" % (mod.name, func.name, p.pid), "STATUS")
 		func.last_launched = time.time()
 		return p
 	
 	def startup(self):
 		# Post office
-		self.pobox = Postoffice(self.outbox, dict(list(self.config.get("Post Office", {}).items()) + list(self.config["Global"].items())))
-		p = Process(target=self.pobox.run, args=())
+		self.pobox = Postoffice(dict(list(self.config.get("Post Office", {}).items()) + list(self.config["Global"].items())))
+		p = Process(target=self.pobox.run, name="Post Office", args=())
 		p.start()
-		self.send("self.post office", "Add", {'name': "self.launcher.%s" % p.pid, "queue": self.box_r})
+		
+		self.connection = Connection("self.launcher", self.config["Global"]["post office address"], family=self.config["Global"]["post office family"])
 		self.log("Starting post office", "NOTICE")
 		
 		for m in self.modules:
@@ -129,7 +299,7 @@ class Launcher():
 
 	def send(self, to, subject, body):
 		l = Letter(to, subject, body, "self.launcher")
-		self.outbox.put(l)
+		self.connection.send(l)
 	
 	def log(self, line, level):
 		self.send("module.bot.logger", "LOG", {'module': 'Launcher', 'time': int(time.time()), 'text': line, 'level': level})
@@ -153,7 +323,7 @@ class Launcher():
 	
 	def run(self):
 		while True:
-			letter = self.inbox.recv()
+			letter = self.connection.recv()
 			if letter.subject == "NEW EVENT":
 				event = letter.body['event']
 				for m in self.modules:
@@ -170,7 +340,7 @@ class Launcher():
 					continue
 
 				self.launch_module(mod, func)
-				self.outbox.put(letter.body['letter'])
+				self.connection.send(letter.body['letter'])
 
 			elif letter.subject == "RELOAD MODULE":
 				for name in letter.body['names']:
@@ -195,11 +365,20 @@ class Launcher():
 				self.shutdown()
 
 class Postoffice():
-	def __init__(self, queue, config):
+	class Hold:
+		def __init__(self, name, expiration, letters=[]):
+			self.name = name
+			self.expiration = expiration
+			self.letters = letters
+		def expire(self):
+			if int(time.time()) >= self.expiration:
+				return True
+			return False
+	
+	def __init__(self, config):
 		self.reload_config(config)
-		self.inbox = queue
-		self.boxes = {}
-		self.hold = {}
+		self.boxes = []
+		self.holds = []
 		signal.signal(signal.SIGINT, self.die)
 	
 	def reload_config(self, config):
@@ -208,83 +387,60 @@ class Postoffice():
 	def die(self, sig, frame):
 		sys.exit(0)
 	
-	def mkbox(self, box_name, queue):
-		names = self.best_match(box_name)
-		if names:
-			print("POST OFFICE: Error adding outbox for %s. Name exists" % box_name)
-			return None
-		self.boxes[box_name] = {"sock": queue}
-		return self.boxes[box_name]
-	
-	def rmbox(self, box_name):
-		names = self.best_match(box_name)
-		if not names:
-			print("POST OFFICE: No outbox for %s." % box_name)
-			return False
-		try: self.boxes[names[0]]['sock'].send(Letter(name, "LAST LETTER", {}, "self.post office"))
-		except: pass
-		del self.boxes[names[0]]
-		return True
-
-	def process(self, letter):
-		if letter.subject == "Add":
-			new_box = self.mkbox(letter.body['name'], letter.body["queue"])
-			for name, waiting in list(self.hold.items())[:]:
-				if name in letter.body['name']:
-					for letter in waiting:
-						new_box['sock'].send(letter)
-					del self.hold[name]
-		elif letter.subject == "REMOVE":
-			self.rmbox(letter.body['name'])
-		elif letter.subject == "RELOAD":
-			self.reload_config(letter.body['config'])
-		elif letter.subject == "LIST BOXES":
-			names = self.best_match(letter.sender)
-			try: self.boxes[names[0]]['sock'].send(Letter(letter.sender, "LIST BOXES", {'list': list(self.boxes.keys())}, "self.post office"))
-			except: pass
-		elif letter.subject == "WAKE FAIL":
-			l = letter.body['letter']
-			names = self.best_match(l.sender)
-			if names: # relabel the subject and send it back
-				l.body['RTS'] = l.subject
-				l.subject = "RETURN TO SENDER"
-				self.boxes[names[0]]['sock'].send(l)
-			for name in list(self.hold.keys()): # delete the hold
-				if name in l.to:
-					del self.hold[name]
-	
-	def best_match(self, name):
+	def best_match(self, name, boxes=None):
+		if not boxes: boxes = self.boxes
 		match = re.compile(re.escape(name)+".*")
-		return [match.match(bname).group() for bname in self.boxes.keys() if match.match(bname)]
+		return [box for box in boxes if match.match(box.name)]
 	
 	def run(self):
+		self.connection = Connection("self.post office", self.config["post office address"], True, self.config["post office family"])
 		while True:
-			letter = self.inbox.get()
+			r, w, e = select.select([self.connection,] + self.boxes, [], [])
+			for c in r:
+				if c == self.connection:
+					new_box = c.accept()
+					
+					holds = self.best_match(new_box.name, self.holds)
+					for hold in holds:
+						for letter in hold.letters:
+							new_box.send(letter)
+						self.holds.remove(hold)
+					
+					self.boxes.append(new_box)
+				else:
+					letter = c.recv()
+					if not letter:
+						self.boxes.remove(c)
+						continue
+					
+					boxes = self.best_match(letter.to)
+					holds = self.best_match(letter.to, self.holds)
+
+					if boxes:
+						for box in boxes:
+							box.send(letter)
+					elif holds: # store it if we're waiting for it to wake up
+						for hold in holds:
+							hold.letters.append(letter)
+					else: # there's no hold, wake the module up
+						boxes = self.best_match("self.launcher")
+						if not boxes:
+							self.connection.letters.append(letter)
+							time.sleep(0.01)
+						else:
+							# letters with a pid can't be used to wake modules
+							if re.compile('[0-9]').match(letter.to.rsplit(".", 1)[1]):
+								continue
+							# it's ok to send to multiple launchers
+							for box in boxes:
+								box.send(Letter("self.launcher", "WAKE", {"letter": letter}))
+
+							# now that we are waiting for the module to wake up, save the letter
+							self.holds.append(Postoffice.Hold(letter.to, int(time.time()) + 60 * 5, [letter,]))
 			
-			if letter.to == "self.post office":
-				self.process(letter)
-				continue
-
-			names = self.best_match(letter.to)
-
-			if names:
-				for name in names:
-					self.boxes[name]['sock'].send(letter)
-			elif letter.to in self.hold.keys(): # store it if we're waiting for it to wake up
-				self.hold[letter.to].append(letter)
-			else: # there's no hold, wake the module up
-				names = self.best_match("self.launcher")
-				if not names:
-					self.inbox.put(letter)
-					time.sleep(0.01)
-					continue
-
-				# it's ok to send to multiple launchers
-				for name in names:
-					self.boxes[name]['sock'].send(Letter("self.launcher", "WAKE", {"letter": letter}))
-
-				# now that we are waiting for the module to wake up, save the letter
-				self.hold[letter.to] = [letter,]
+			for hold in self.holds[:]:
+				if hold.expire():
+					self.holds.remove(hold)
 
 class ACL():
 	def __init__(self, module):
@@ -366,15 +522,12 @@ class Module():
 					c.append(regexp)
 				self.commands = c
 	class Bot():
-		def __init__(self, mail, event, name, pid, conf):
-			self.inbox = mail[0]
-			self.outbox = mail[1]
-			self.letters = []
+		def __init__(self, event, name, pid, conf):
 			self.name = '.'.join(name)
+			self.connection = Connection(self.name, conf['post office address'], family=conf['post office family'], protocol=conf['post office protocol'])
 			self.input = event
 			self.pid = pid
 			self.conf = conf
-			self.handlers = {'subject': {}, 'sender': {}}
 		def write(self, args, text=None):
 			def safe(data): 
 				data = data.replace('\n', '')
@@ -394,78 +547,15 @@ class Module():
 			self.msg(self.input.sender, "%s: %s" % (self.input.nick, text))
 		def send(self, to, subject, body):
 			l = Letter(to, subject, body, self.name)
-			self.outbox.put(l)
+			self.connection.send(l)
 		def log(self, line, level):
 			self.send("module.bot.logger", "LOG", {'module': self.name, 'time': int(time.time()), 'text': line, 'level': level})
+		def recv(self, subject=[], sender=[], block=True):
+			return self.connection.recv(subject, sender, block)
 		def register(self, func, subject=None, sender=None):
-			if subject:
-				if isinstance(subject, str):
-					h = self.handlers['subject'].setdefault(subject, [])
-					h.append(func)
-					self.handlers['subject'][subject] = h
-				else:
-					for subj in subject:
-						h = self.handlers['subject'].setdefault(subj, [])
-						h.append(func)
-						self.handlers['subject'][subj] = h
-			if sender:
-				if isinstance(sender, str):
-					h = self.handlers['sender'].setdefault(sender, [])
-					h.append(func)
-					self.handlers['sender'][sender] = h
-				else:
-					for send in sender:
-						h = self.handlers['sender'].setdefault(send, [])
-						h.append(func)
-						self.handlers['sender'][send] = h
+			self.connection.register_handler(func, subject, sender)
 		def loop(self):
-			def callback(funcs, letter):
-				for func in funcs:
-					try: func(letter)
-					except Exception as e:
-						self.log("Exception in callback %s: %s" % (func.__name__, e), "ERROR")
-
-			while True:
-				l = self.recv()
-				hits = [self.handlers['subject'][hit] for hit in self.handlers['subject'].keys() if hit == l.subject]
-				hits.extend([self.handlers['sender'][hit] for hit in self.handlers['sender'].keys() if hit == l.sender])
-				
-				for hit in hits:
-					callback(hit, l)
-		def recv(self, subject=None, sender=None, block=True):
-			while self.inbox.poll():
-				self.letters.append(self.inbox.recv())
-			if subject or sender:
-				while True:
-					if len(self.letters) == 0: self.letters.append(self.inbox.recv())
-					if subject:
-						matches = [mletter for mletter in self.letters if len([True for filt in subject if re.match(filt, mletter.subject)]) > 0]
-						if len(matches) == 0 and block: continue
-						elif len(matches) > 0:
-							self.letters.remove(matches[0])
-							return matches[0]
-						else: return None
-					elif sender:
-						matches = [mletter for mletter in self.letters if len([True for filt in sender if re.match(filt, mletter.sender)]) > 0]
-						if len(matches) == 0 and block: continue
-						elif len(matches) > 0:
-							self.letters.remove(matches[0])
-							return matches[0]
-						else: return None
-			else:
-				if len(self.letters) > 0:
-					return self.letters.pop(0)
-				elif block and len(self.letters) == 0:
-					return self.inbox.recv()
-				else:
-					return None
-				
-		def discard(self, timeout=1):
-			if self.inbox.poll(timeout):
-				self.inbox.recv()
-				return 1
-			else:
-				return 0
+			self.connection.loop()
 		
 	def __init__(self, name, config):
 		self.config = config
@@ -497,12 +587,27 @@ class Module():
 			   func.last_launched + func.quota[2] < time.time()):
 				return True
 
-	def start(self, event, func, mail, mod_name):
-		if hasattr(os, 'getppid'):
-			pid = os.getppid()
-		else:
-			pid = os.getpid()
-		bot = Module.Bot(mail, event, ["module", self.name, func.name], pid, self.config)
+	def start(self, event, func):
+		# daemonize
+		try: pid = os.fork()
+		except: sys.exit(-1)
+		if pid != 0:
+			sys.exit(0)
+		
+		pid = os.getpid()
+		log_file = open("logs/%s.log" % '.'.join(["module", self.name, func.name, str(pid)]), "w")
+		sid = os.setsid()
+		
+		sys.stdout.flush()
+		sys.stderr.flush()
+		si = open("/dev/null", 'r')
+		so = open("/dev/null", 'a+')
+		se = open("/dev/null", 'a+b', 0)
+		os.dup2(si.fileno(), sys.stdin.fileno())
+		os.dup2(so.fileno(), sys.stdout.fileno())
+		os.dup2(se.fileno(), sys.stderr.fileno())
+		
+		bot = Module.Bot(event, ["module", self.name, func.name], pid, self.config)
 		if event and hasattr(event, "bytes"):
 			if func.commands:
 				for command in func.commands:
@@ -535,6 +640,7 @@ class Module():
 		except:
 			trace = traceback.format_exc()
 			for line in trace.split('\n'):
+				log_file.write(line+'\n')
 				bot.log(line, "ERROR")
 			lines = list(reversed(trace.splitlines()))
 			report = [lines[0].strip()]
@@ -544,10 +650,13 @@ class Module():
 					report.append(line[0].lower() + line[1:])
 					break
 			else: report.append('source unknown')
-			try: bot.say(report[0] + ' (' + report[1] + ')')
+			try:
+				log_file.write(report[0] + ' (' + report[1] + ')')
+				bot.say(report[0] + ' (' + report[1] + ')')
 			except: pass # services have no event!
-		try: bot.send("self.post office", "REMOVE", {'name': "module.%s.%s" % (mod_name, func.name)})
+		try: bot.connection.close()
 		except: pass
+		log_file.close()
 
 conf_name = "shana2.conf"
 
