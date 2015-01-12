@@ -214,6 +214,7 @@ class Connection():
 		return c
 
 	def close(self):
+		if not self.connected: return
 		self.sock.close()
 		self.connected = False
 		self.sock = None
@@ -340,7 +341,6 @@ class Launcher():
 					continue
 
 				self.launch_module(mod, func)
-				self.connection.send(letter.body['letter'])
 
 			elif letter.subject == "RELOAD MODULE":
 				for name in letter.body['names']:
@@ -399,20 +399,23 @@ class Postoffice():
 			for c in r:
 				if c == self.connection:
 					new_box = c.accept()
-					
+
 					holds = self.best_match(new_box.name, self.holds)
 					for hold in holds:
-						for letter in hold.letters:
-							new_box.send(letter)
+						try:
+							for letter in hold.letters:
+								new_box.send(letter)
+						except BrokenPipeError:
+							new_box.close()
 						self.holds.remove(hold)
-					
-					self.boxes.append(new_box)
+					if new_box.connected:
+						self.boxes.append(new_box)
 				else:
 					letter = c.recv()
 					if not letter:
 						self.boxes.remove(c)
 						continue
-					
+
 					boxes = self.best_match(letter.to)
 					holds = self.best_match(letter.to, self.holds)
 
@@ -639,8 +642,9 @@ class Module():
 			pass
 		except:
 			trace = traceback.format_exc()
+			log_file.write(trace)
+			log_file.flush()
 			for line in trace.split('\n'):
-				log_file.write(line+'\n')
 				bot.log(line, "ERROR")
 			lines = list(reversed(trace.splitlines()))
 			report = [lines[0].strip()]
