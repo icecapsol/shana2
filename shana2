@@ -190,9 +190,7 @@ class Connection():
 	def loop(self):
 		def callback(funcs, letter):
 			for func in funcs:
-				try: func(letter)
-				except Exception as e:
-					self.log("Exception in callback %s: %s" % (func.__name__, e), "ERROR")
+				func(letter)
 
 		while True:
 			l = self.recv()
@@ -215,8 +213,14 @@ class Connection():
 
 	def close(self):
 		if not self.connected: return
-		self.sock.close()
 		self.connected = False
+		while True:
+			try:
+				letter = self.recv()
+				if letter: self.letters.append(letter)
+				else: break
+			except: break
+		self.sock.close()
 		self.sock = None
 
 class Launcher():
@@ -321,7 +325,7 @@ class Launcher():
 			return (module, function)
 		except:
 			return (None, None)
-	
+
 	def run(self):
 		while True:
 			letter = self.connection.recv()
@@ -379,6 +383,7 @@ class Postoffice():
 		self.reload_config(config)
 		self.boxes = []
 		self.holds = []
+		self.closed = []
 		signal.signal(signal.SIGINT, self.die)
 	
 	def reload_config(self, config):
@@ -391,6 +396,32 @@ class Postoffice():
 		if not boxes: boxes = self.boxes
 		match = re.compile(re.escape(name)+".*")
 		return [box for box in boxes if match.match(box.name)]
+	
+	def deliver(self, letter):
+		boxes = self.best_match(letter.to)
+		holds = self.best_match(letter.to, self.holds)
+
+		if boxes:
+			for box in boxes:
+				box.send(letter)
+		elif holds: # store it if we're waiting for it to wake up
+			for hold in holds:
+				hold.letters.append(letter)
+		else: # there's no hold, wake the module up
+			boxes = self.best_match("self.launcher")
+			if not boxes:
+				self.connection.letters.append(letter)
+				time.sleep(0.01)
+			else:
+				# letters with a destination containing a pid can't be used to wake modules
+				if re.compile('[0-9]').match(letter.to.rsplit(".", 1)[1]):
+					return
+				# it's ok to send to multiple launchers
+				for box in boxes:
+					box.send(Letter("self.launcher", "WAKE", {"letter": letter}))
+
+				# now that we are waiting for the module to wake up, save the letter
+				self.holds.append(Postoffice.Hold(letter.to, int(time.time()) + 60 * 5, [letter,]))
 	
 	def run(self):
 		self.connection = Connection("self.post office", self.config["post office address"], True, self.config["post office family"])
@@ -407,6 +438,7 @@ class Postoffice():
 								new_box.send(letter)
 						except BrokenPipeError:
 							new_box.close()
+							self.closed.append(new_box)
 						self.holds.remove(hold)
 					if new_box.connected:
 						self.boxes.append(new_box)
@@ -416,30 +448,11 @@ class Postoffice():
 						self.boxes.remove(c)
 						continue
 
-					boxes = self.best_match(letter.to)
-					holds = self.best_match(letter.to, self.holds)
+					self.deliver(letter)
 
-					if boxes:
-						for box in boxes:
-							box.send(letter)
-					elif holds: # store it if we're waiting for it to wake up
-						for hold in holds:
-							hold.letters.append(letter)
-					else: # there's no hold, wake the module up
-						boxes = self.best_match("self.launcher")
-						if not boxes:
-							self.connection.letters.append(letter)
-							time.sleep(0.01)
-						else:
-							# letters with a pid can't be used to wake modules
-							if re.compile('[0-9]').match(letter.to.rsplit(".", 1)[1]):
-								continue
-							# it's ok to send to multiple launchers
-							for box in boxes:
-								box.send(Letter("self.launcher", "WAKE", {"letter": letter}))
-
-							# now that we are waiting for the module to wake up, save the letter
-							self.holds.append(Postoffice.Hold(letter.to, int(time.time()) + 60 * 5, [letter,]))
+			for box in self.closed:
+				for letter in box.letters:
+					self.deliver(letter)
 			
 			for hold in self.holds[:]:
 				if hold.expire():
@@ -598,7 +611,6 @@ class Module():
 			sys.exit(0)
 		
 		pid = os.getpid()
-		log_file = open("logs/%s.log" % '.'.join(["module", self.name, func.name, str(pid)]), "w")
 		sid = os.setsid()
 		
 		sys.stdout.flush()
@@ -642,6 +654,7 @@ class Module():
 			pass
 		except:
 			trace = traceback.format_exc()
+			log_file = open("logs/%s.log" % '.'.join(["module", self.name, func.name, str(pid)]), "w")
 			log_file.write(trace)
 			log_file.flush()
 			for line in trace.split('\n'):
