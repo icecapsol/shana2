@@ -214,12 +214,14 @@ class Connection():
 	def close(self):
 		if not self.connected: return
 		self.connected = False
+		remainder = []
 		while True:
 			try:
 				letter = self.recv()
-				if letter: self.letters.append(letter)
+				if letter: remainder.append(letter)
 				else: break
 			except: break
+		self.letters = remainder
 		self.sock.close()
 		self.sock = None
 
@@ -439,7 +441,8 @@ class Postoffice():
 						except BrokenPipeError:
 							new_box.close()
 							self.closed.append(new_box)
-						self.holds.remove(hold)
+						try: self.holds.remove(hold)
+						except: pass
 					if new_box.connected:
 						self.boxes.append(new_box)
 				else:
