@@ -211,17 +211,18 @@ class Connection():
 		c.name = letter.sender
 		return c
 
-	def close(self):
+	def close(self, quick=True):
 		if not self.connected: return
 		self.connected = False
-		remainder = []
-		while True:
-			try:
-				letter = self.recv()
-				if letter: remainder.append(letter)
-				else: break
-			except: break
-		self.letters = remainder
+		if not quick:
+			remainder = []
+			while True:
+				try:
+					letter = self.recv()
+					if letter: remainder.append(letter)
+					else: break
+				except: break
+			self.letters = remainder
 		self.sock.close()
 		self.sock = None
 
@@ -405,7 +406,10 @@ class Postoffice():
 
 		if boxes:
 			for box in boxes:
-				box.send(letter)
+				try: box.send(letter)
+				except:
+					box.close()
+					self.boxes.remove(box)
 		elif holds: # store it if we're waiting for it to wake up
 			for hold in holds:
 				hold.letters.append(letter)
@@ -439,14 +443,17 @@ class Postoffice():
 							for letter in hold.letters:
 								new_box.send(letter)
 						except BrokenPipeError:
-							new_box.close()
+							new_box.close(False)
 							self.closed.append(new_box)
 						try: self.holds.remove(hold)
 						except: pass
 					if new_box.connected:
 						self.boxes.append(new_box)
 				else:
-					letter = c.recv()
+					try: letter = c.recv()
+					except AttributeError:
+						if c in self.boxes: self.boxes.remove(c)
+						continue
 					if not letter:
 						self.boxes.remove(c)
 						continue
