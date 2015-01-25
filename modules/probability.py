@@ -75,7 +75,8 @@ def roll(shana, event):
 		shana.say("Roll %s: %d %s" %
 			(event.group(2).strip(), subtotal, {True: '', False: '-> %d' % total}[subtotal == total]) )
 	else:
-		shana.say("Roll %s: [%s] = %d %s" %
-			(event.group(2).strip(), ' ,'.join(map(str, outcome)), subtotal, {True: '', False: '-> %d' % total}[subtotal == total]) )
+		shana.say("Roll %s: [%s%s] = %d %s" %
+			(event.group(2).strip(), ', '.join(map(str, 
+outcome[:30])), "" if len(outcome) <= 30 else "...", subtotal, '' if subtotal == total else '-> %d' % total) )
 roll.name = 'roll'
 roll.commands = ['roll']
