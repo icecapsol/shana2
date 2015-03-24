@@ -117,6 +117,7 @@ def communicator(shana, event):
 			while True:
 				letter = self.bot.recv()
 				if letter.subject == "NEW IRC OUTPUT":
+					self.bot.log(letter.body['message'], "DEBUG")
 					try: self.comm.push(letter.body['message'].encode('utf-8'))
 					except:
 						try:
@@ -165,11 +166,11 @@ def parser(shana, event):
 
 		if len(args) > 1: 
 			target = args[1]
-		else: target = None
-		sender = {shana.conf['nick']: nick, None: None}.get(target, target)
+		else: target = ""
+		sender = {shana.conf['nick']: nick, None: ""}.get(target, target)
 		args = tuple([text] + args)
 		
-		shana.send("module.bot.generator", "NEW IRC DATA", {'nick': nick, "user": user, "host": host, "sender": sender, "args": args})
+		shana.send("module.bot.generator", "NEW IRC DATA", {'nick': {None: ""}.get(nick, nick), "user": user, "host": host, "sender": sender, "args": args})
 	
 	shana.register(new_line, "NEW LINE")
 	shana.loop()

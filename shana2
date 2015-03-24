@@ -22,6 +22,8 @@ class Letter:
 		self.to_f = to.split('.')
 		self.subject = subject
 		self.body = body
+	def to_str(self):
+		return "---\nSender: %s\nTo: %s\nSubject: %s\nBody: \n\t%s" % (self.sender, self.to, self.subject, '\n\t'.join(["%s: %s" % (n, v) for n, v in self.body.items()]))
 
 class Event():
 	def __init__(self, text, data, bytes, event, args, config):
@@ -77,7 +79,7 @@ class Connection():
 		if self.family == socket.AF_UNIX:
 			if os.path.exists(self.address):
 				os.remove(self.address)
-				
+
 		self.sock.bind(self.address)
 		if self.protocol == socket.SOCK_STREAM:
 			self.sock.listen(2)
@@ -103,7 +105,7 @@ class Connection():
 
 	def register(self):
 		if self.connected:
-			self.send(Letter("self.post office", "REGISTER", None, self.name))
+			self.send(Letter("self.post office", "REGISTER", {}, self.name))
 
 	def register_handler(self, func, subject=None, sender=None):
 		if subject:
@@ -142,21 +144,20 @@ class Connection():
 			raise e
 
 	def filter(self, subject=[], sender=[]):
-		by_subject = [mletter for mletter in self.letters if len([True for filt in subject if re.match(filt, mletter.subject)]) > 0]
-		if by_subject:
-			return by_subject[0]
-		by_sender = [mletter for mletter in self.letters if len([True for filt in sender if re.match(filt, mletter.sender)]) > 0]
-		if by_sender:
-			return by_sender[0]
-		if self.letters:
-			return self.letters[0]
+		pool = self.letters
+		if subject:
+			pool = [mletter for mletter in pool if len([True for filt in subject if re.match(filt, mletter.subject)]) > 0]
+		if sender:
+			pool = [mletter for mletter in pool if len([True for filt in sender if re.match(filt, mletter.sender)]) > 0]
+		if pool:
+			return pool[0]
 
 	def recv(self, subject=[], sender=[], block=True):
 		letter = self.filter(subject, sender)
 		if letter:
 			self.letters.remove(letter)
 			return letter
-		
+
 		while True:
 			old_to = self.sock.gettimeout()
 			rlen_bytes = None
@@ -179,12 +180,12 @@ class Connection():
 				rdata += self.sock.recv(rlen - len(rdata))
 			letter = pickle.loads(rdata)
 			self.letters.append(letter)
-			
+
 			letter = self.filter(subject, sender)
 			if letter:
 				self.letters.remove(letter)
 				return letter
-			
+
 		return None
 
 	def loop(self):
@@ -196,7 +197,7 @@ class Connection():
 			l = self.recv()
 			hits = [self.handlers['subject'][hit] for hit in self.handlers['subject'].keys() if hit == l.subject]
 			hits.extend([self.handlers['sender'][hit] for hit in self.handlers['sender'].keys() if hit == l.sender])
-			
+
 			for hit in hits:
 				callback(hit, l)
 
@@ -206,7 +207,7 @@ class Connection():
 		c.family = self.family
 		c.protocol = self.protocol
 		c.connected = True
-		
+
 		letter = c.recv()
 		c.name = letter.sender
 		return c
@@ -222,7 +223,7 @@ class Connection():
 					if letter: remainder.append(letter)
 					else: break
 				except: break
-			self.letters = remainder
+			self.letters.extend(remainder)
 		self.sock.close()
 		self.sock = None
 
@@ -236,7 +237,7 @@ class Launcher():
 		self.load_modules()
 		self.startup()
 		self.run()
-	
+
 	def read_config(self):
 		conf_file = open(self.conf_name, "r")
 		self.config = yaml.load(conf_file)
@@ -249,22 +250,22 @@ class Launcher():
 	def reload_config(self, config):
 		self.config = config
 		self.load_modules()
-	def merge(self, x,y):        
+	def merge(self, x,y):
 		merged = dict(list(x.items()) + list(y.items()))
 		xkeys = x.keys()
-	                      
-		for key in xkeys:                               
+
+		for key in xkeys:
 			if str(type(x[key])) == "<class 'dict'>" and key in y.keys():
 				merged[key] = self.merge(x[key],y[key])
 		return merged
-	
+
 	def locale_check(self):
 		if locale.getpreferredencoding() != "UTF-8":
 			self.log("Default encoding is not set to UTF-8. This will likely break unicode support.", "CRITICAL")
-	
+
 	def die(self, sig, frame):
 		sys.exit(0)
-	
+
 	def load_module(self, fn):
 		mod = Module(fn, self.merge(self.config.get("Modules", {}), self.merge(self.config["Global"], self.config.get("Module.%s" % fn.rpartition(".")[0], {}))))
 		for m in self.modules:
@@ -282,23 +283,23 @@ class Launcher():
 				print(trace)
 				exceptions.append(fn)
 		#self.log("Loaded %d modules (%d errors)" % (len(self.modules), len(exceptions)), "NOTICE")
-	
+
 	def launch_module(self, mod, func, event=None):
 		p = Process(target=mod.start, name="%s.%s" % (mod.name, func.name), args=(event, func))
 		p.start()
 		self.log("Launching module %s.%s.%s" % (mod.name, func.name, p.pid), "STATUS")
 		func.last_launched = time.time()
 		return p
-	
+
 	def startup(self):
 		# Post office
 		self.pobox = Postoffice(dict(list(self.config.get("Post Office", {}).items()) + list(self.config["Global"].items())))
 		p = Process(target=self.pobox.run, name="Post Office", args=())
 		p.start()
-		
+
 		self.connection = Connection("self.launcher", self.config["Global"]["post office address"], family=self.config["Global"]["post office family"])
 		self.log("Starting post office", "NOTICE")
-		
+
 		for m in self.modules:
 			for func in m.functions:
 				if func.startup:
@@ -308,13 +309,13 @@ class Launcher():
 	def send(self, to, subject, body):
 		l = Letter(to, subject, body, "self.launcher")
 		self.connection.send(l)
-	
+
 	def log(self, line, level):
 		self.send("module.bot.logger", "LOG", {'module': 'Launcher', 'time': int(time.time()), 'text': line, 'level': level})
-	
+
 	def shutdown(self, args):
 		sys.exit(0)
-	
+
 	def get_module_function(self, name):
 		if isinstance(name, list) or isinstance(name, tuple):
 			try: module_class, module_name, function_name = name
@@ -334,8 +335,11 @@ class Launcher():
 			letter = self.connection.recv()
 			if letter.subject == "NEW EVENT":
 				event = letter.body['event']
+				print(event.event, event.bytes)
 				for m in self.modules:
-					for func in m.trigger(event):
+					for func in m.functions:
+						if not [t.trigger(event) for t in func.triggers].count(True): continue
+						print(func.name)
 						if func.service:
 							self.send("module.%s.%s" % (m.name, func.name), "NEW EVENT", {'event': event, 'modname': m.name, 'funcname': func.name, 'service': True})
 						else:
@@ -381,25 +385,25 @@ class Postoffice():
 			if int(time.time()) >= self.expiration:
 				return True
 			return False
-	
+
 	def __init__(self, config):
 		self.reload_config(config)
 		self.boxes = []
 		self.holds = []
 		self.closed = []
 		signal.signal(signal.SIGINT, self.die)
-	
+
 	def reload_config(self, config):
 		self.config = config
-		
+
 	def die(self, sig, frame):
 		sys.exit(0)
-	
+
 	def best_match(self, name, boxes=None):
 		if not boxes: boxes = self.boxes
 		match = re.compile(re.escape(name)+".*")
 		return [box for box in boxes if match.match(box.name)]
-	
+
 	def deliver(self, letter):
 		boxes = self.best_match(letter.to)
 		holds = self.best_match(letter.to, self.holds)
@@ -428,7 +432,7 @@ class Postoffice():
 
 				# now that we are waiting for the module to wake up, save the letter
 				self.holds.append(Postoffice.Hold(letter.to, int(time.time()) + 60 * 5, [letter,]))
-	
+
 	def run(self):
 		self.connection = Connection("self.post office", self.config["post office address"], True, self.config["post office family"])
 		while True:
@@ -450,10 +454,7 @@ class Postoffice():
 					if new_box.connected:
 						self.boxes.append(new_box)
 				else:
-					try: letter = c.recv()
-					except AttributeError:
-						if c in self.boxes: self.boxes.remove(c)
-						continue
+					letter = c.recv()
 					if not letter:
 						self.boxes.remove(c)
 						continue
@@ -463,90 +464,131 @@ class Postoffice():
 			for box in self.closed:
 				for letter in box.letters:
 					self.deliver(letter)
-			
+				self.closed.remove(box)
+
 			for hold in self.holds[:]:
 				if hold.expire():
 					self.holds.remove(hold)
 
-class ACL():
-	def __init__(self, module):
-		self.owner = getattr(module, 'owner', 'nobody')
-		self.group = getattr(module, 'group', 'nobody')
-		if self.owner == 'nobody' or self.group == 'nobody':
-			self.owner, self.group = ('nobody', 'nobody')
-			self.mode = ((True, True), (True, True), (True, True))
-		else:
-			self.mode = getattr(module, 'mode', ((True, True), (True, False), (True, False))) # execute, modify
-		self.funcs = {}
+class Trigger():
+	def __init__(self, definition, config):
+		def sub(pattern, self=self):
+			# These replacements have significant order
+			pattern = pattern.replace('$nickname', config['name'])
+			return pattern.replace('$nick', r'%s[,:] +' % config['name'])
+
+		self.definition = definition
+		self.string = repr(definition)
+
+		self.triggered = 0
+		self.last = 0
+
+		# A definition is a dictionary of filters and parameters
+		# All keys are optional
+		# { "name": <string>,
+		#   "rule": <list of rule objects>, # matched against event.bytes with re.match and re.search
+		#   "commands": <list of command strings>,
+		#   "event": <list of event strings>, # matched against event.event
+		#   "sender": <list of sender strings>,
+		#   "nick": <list of nick strings>,
+		#   "group": <list of nick strings>,
+		#   "expire": <integer>, # decremented every time it gets triggered, at 0 it will not trigger, -1 for infinity
+		#   "quota": <integer> } # minimum time between triggering in seconds
+		self.name = definition.get("name", "")
+
+		self.rule = []
+		if definition.get("rule", None):
+			rule = definition['rule']
+			if isinstance(rule, str):
+				pattern = sub(rule)
+				regexp = re.compile(pattern)
+				self.rule = [regexp]
+
+			if isinstance(rule, tuple):
+				# 1) e.g. ('$nick', '(.*)')
+				if len(rule) == 2 and isinstance(rule[0], str):
+					prefix, pattern = rule
+					prefix = sub(prefix)
+					regexp = re.compile(prefix + pattern)
+					self.rule = [regexp]
+
+				# 2) e.g. (['p', 'q'], '(.*)')
+				elif len(rule) == 2 and isinstance(rule[0], list):
+					prefix = config['prefix']
+					commands, pattern = rule
+					self.rule = []
+					for command in commands:
+						command = r'(%s)(?: +(?:%s))?' % (command, pattern)
+						regexp = re.compile(prefix + command)
+						self.rule.append(regexp)
+
+				# 3) e.g. ('$nick', ['p', 'q'], '(.*)')
+				elif len(rule) == 3:
+					prefix, commands, pattern = rule
+					prefix = sub(prefix)
+					self.rule = []
+					for command in commands:
+						command = r'(%s) +' % command
+						regexp = re.compile(prefix + command + pattern)
+						self.rule.append(regexp)
+		if definition.get("commands", None):
+			for command in definition['commands']:
+				template = r'^%s(%s)(?: +(.*))?$'
+				pattern = template % (config['prefix'], command)
+				regexp = re.compile(pattern)
+				self.rule.append(regexp)
+		if not self.rule:
+			self.rule = (re.compile("(.*)"),)
+
+		self.event = [re.compile(event_regex) for event_regex in definition.get('event', ('PRIVMSG',))]
+		self.sender = [re.compile(sender_regex) for sender_regex in definition.get('sender', ('.*',))]
+		self.nick = [re.compile(nick_regex) for nick_regex in definition.get('nick', ('.*',))]
+		self.group = [re.compile(group_regex) for group_regex in definition.get('group', ('.*',))]
+
+		self.expire = definition.get("expire", -1)
+		self.quota = definition.get("quota", 0)
+
+	def trigger(self, event):
+		# don't even attempt if we reached the expiration or not passed the quota yet
+		if self.last + self.quota > time.time(): return False
+		if self.expire == 0: return False
+
+		# every paramater must pass in order to trigger
+		rule = [True for r in self.rule if r.match(event.bytes)].count(True)
+		rule += [True for r in self.rule if r.search(event.bytes)].count(True)
+		eve = [True for e in self.event if e.match(event.event)].count(True)
+		sender = [True for s in self.sender if s.match(event.sender)].count(True)
+		nick = [True for n in self.nick if n.match(event.nick)].count(True)
+		group = [True for g in self.group if [True for ug in event.ugroups if g.match(ug)].count(True)].count(True)
+
+		if not (rule and eve and sender and nick and group): return False
+
+		# it has been triggered
+		self.triggered += 1
+		self.last = time.time()
+		return True
 
 class Module():
 	class Function():
 		def __init__(self, name, func, config):
-			def sub(pattern, self=self):
-				# These replacements have significant order
-				pattern = pattern.replace('$nickname', config['name'])
-				return pattern.replace('$nick', r'%s[,:] +' % config['name'])
 			self.name = name
 			self.func = func
 			self.rule = getattr(self.func, 'rule', [])
 			self.commands = getattr(self.func, 'commands', [])
+			self.event = getattr(self.func, 'event', [])
 			self.startup = getattr(self.func, 'startup', False)
 			self.service = getattr(self.func, 'service', False)
-			quota = getattr(self.func, 'quota', (0, 0, 0))
-			if isinstance(quota, int) or isinstance(quota, float):
-				quota = (self.func.quota, self.func.quota, self.func.quota)
-			self.quota = quota
-			self.last_launched = 0
-			if hasattr(self.func, "event"):
-				if isinstance(self.func.event, str):
-					self.event = [self.func.event,]
-				else:
-					self.event = self.func.event
-			else:
-				self.event = getattr(self.func, 'event', ['PRIVMSG'])
-			#print(self.event)
-			if self.rule:
-				if isinstance(self.rule, str): 
-					pattern = sub(self.rule)
-					regexp = re.compile(pattern)
-					self.rule = [regexp]
+			self.triggers = []
+			if self.commands or self.rule or self.event:
+				self.triggers.append(Trigger({
+					'name': 'old style',
+					'rule': self.rule,
+					'commands': self.commands,
+					'event': self.event,
+					'group': getattr(self.func, 'group', ('.*',)) }, config))
+			for trigger in getattr(self.func, 'triggers', []):
+				self.triggers.append(Trigger(trigger, config))
 
-				if isinstance(func.rule, tuple): 
-					# 1) e.g. ('$nick', '(.*)')
-					if len(self.rule) == 2 and isinstance(self.rule[0], str): 
-						prefix, pattern = self.rule
-						prefix = sub(prefix)
-						regexp = re.compile(prefix + pattern)
-						self.rule = [regexp]
-
-					# 2) e.g. (['p', 'q'], '(.*)')
-					elif len(self.rule) == 2 and isinstance(self.rule[0], list): 
-						prefix = config['prefix']
-						commands, pattern = self.rule
-						self.rule = []
-						for command in commands: 
-							command = r'(%s)(?: +(?:%s))?' % (command, pattern)
-							regexp = re.compile(prefix + command)
-							self.rule.append(regexp)
-
-					# 3) e.g. ('$nick', ['p', 'q'], '(.*)')
-					elif len(self.rule) == 3: 
-						prefix, commands, pattern = self.rule
-						prefix = sub(prefix)
-						self.rule = []
-						for command in commands: 
-							command = r'(%s) +' % command
-							regexp = re.compile(prefix + command + pattern)
-							self.rule.append(regexp)
-
-			if self.commands:
-				c = []
-				for command in self.commands: 
-					template = r'^%s(%s)(?: +(.*))?$'
-					pattern = template % (config['prefix'], command)
-					regexp = re.compile(pattern)
-					c.append(regexp)
-				self.commands = c
 	class Bot():
 		def __init__(self, event, name, pid, conf):
 			self.name = '.'.join(name)
@@ -554,8 +596,9 @@ class Module():
 			self.input = event
 			self.pid = pid
 			self.conf = conf
+			self.debug_log = open("logs/%s.log" % '.'.join([self.name, str(pid)]), "w")
 		def write(self, args, text=None):
-			def safe(data): 
+			def safe(data):
 				data = data.replace('\n', '')
 				data = data.replace('\r', '')
 				return data
@@ -576,42 +619,25 @@ class Module():
 			self.connection.send(l)
 		def log(self, line, level):
 			self.send("module.bot.logger", "LOG", {'module': self.name, 'time': int(time.time()), 'text': line, 'level': level})
+		def debug(self, text):
+			self.debug_log.write(text+'\n')
+			self.debug_log.flush()
 		def recv(self, subject=[], sender=[], block=True):
 			return self.connection.recv(subject, sender, block)
 		def register(self, func, subject=None, sender=None):
 			self.connection.register_handler(func, subject, sender)
 		def loop(self):
 			self.connection.loop()
-		
+
 	def __init__(self, name, config):
 		self.config = config
 		module = getattr(__import__('modules.' + name.rpartition(".")[0]), name.rpartition(".")[0])
 		imp.reload(module)
 		self.name = name.rpartition(".")[0]
 		self.functions = []
-		self.acl = ACL(module)
 		for name, func in vars(module).items():
 			if not str(type(func)) == "<class 'function'>": continue
-			fname = getattr(func, 'name', name)
-			self.functions.append(Module.Function(fname, func, config))
-			self.acl.funcs[fname] = {'owner': getattr(func, 'owner', 'nobody'), 
-							    'group': getattr(func, 'group', 'nobody'), 
-							    'priority': getattr(func, 'priority', 'low'), 
-							    'mode': getattr(module, 'mode', (True, True, True))}
-	
-	def trigger(self, event):
-		launch = []
-		for func in self.functions:
-			if event.event in func.event and ([True for regexp in func.rule if regexp.match(event.bytes)] or [True for regexp in func.rule if regexp.search(event.bytes)] or [True for regexp in func.commands if regexp.match(event.bytes)]) and self.approve(func, event):
-				launch.append(func)
-		return launch
-	def approve(self, func, event):
-		acl = self.acl.funcs[func.name]
-		if acl['mode'][2] or (acl['group'] in event.ugroups and acl['mode'][1]) or (event.username == acl['owner'] and acl['mode'][0]):
-			if (event.username == acl['owner'] and func.last_launched + func.quota[0] < time.time()) or (
-			   acl['group'] in event.ugroups and func.last_launched + func.quota[1] < time.time()) or (
-			   func.last_launched + func.quota[2] < time.time()):
-				return True
+			self.functions.append(Module.Function(getattr(func, 'name', name), func, config))
 
 	def start(self, event, func):
 		# daemonize
@@ -619,10 +645,10 @@ class Module():
 		except: sys.exit(-1)
 		if pid != 0:
 			sys.exit(0)
-		
+
 		pid = os.getpid()
 		sid = os.setsid()
-		
+
 		sys.stdout.flush()
 		sys.stderr.flush()
 		si = open("/dev/null", 'r')
@@ -631,59 +657,51 @@ class Module():
 		os.dup2(si.fileno(), sys.stdin.fileno())
 		os.dup2(so.fileno(), sys.stdout.fileno())
 		os.dup2(se.fileno(), sys.stderr.fileno())
-		
+
 		bot = Module.Bot(event, ["module", self.name, func.name], pid, self.config)
 		if event and hasattr(event, "bytes"):
-			if func.commands:
-				for command in func.commands:
-					match = command.match(event.bytes)
+			for t in func.triggers:
+				if t.trigger(event):
+					match = [r.match(event.bytes) for r in t.rule if r.match(event.bytes)]
+					search = [r.search(event.bytes) for r in t.rule if r.search(event.bytes)]
 					if match:
-						event.match = match
-						event.group = match.group
-						event.groups = match.groups
-			elif func.rule:
-				for rule in func.rule:
-					match = rule.match(event.bytes)
-					if match:
-						event.match = match
-						event.group = match.group
-						event.groups = match.groups
-					search = rule.search(event.bytes)
+						event.match = match[0]
+						event.group = match[0].group
+						event.groups = match[0].groups
 					if search:
-						event.search = search
-						event.searches = rule.findall(event.bytes)
-			else:
-				event.match = None
-				event.group = None
-				event.groups = None
+						event.search = search[0]
+						event.searches = search
+					break
 
 		#for lim, val in func.limits.items():
 			#resource.setrlimit(lim, val)
+
 		try: func.func(bot, event)
 		except KeyboardInterrupt:
 			pass
 		except:
 			trace = traceback.format_exc()
-			log_file = open("logs/%s.log" % '.'.join(["module", self.name, func.name, str(pid)]), "w")
-			log_file.write(trace)
-			log_file.flush()
+			bot.debug(trace)
 			for line in trace.split('\n'):
 				bot.log(line, "ERROR")
 			lines = list(reversed(trace.splitlines()))
 			report = [lines[0].strip()]
-			for line in lines: 
+			for line in lines:
 				line = line.strip()
-				if line.startswith('File "/'): 
+				if line.startswith('File "/'):
 					report.append(line[0].lower() + line[1:])
 					break
 			else: report.append('source unknown')
 			try:
-				log_file.write(report[0] + ' (' + report[1] + ')')
+				bot.debug(report[0] + ' (' + report[1] + ')')
 				bot.say(report[0] + ' (' + report[1] + ')')
 			except: pass # services have no event!
-		try: bot.connection.close()
+		try:
+			bot.debug(str(len(bot.connection.letters)))
+			time.sleep(0.1)
+			bot.connection.close()
 		except: pass
-		log_file.close()
+		bot.debug_log.close()
 
 conf_name = "shana2.conf"
 

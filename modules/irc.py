@@ -12,7 +12,6 @@ def pong(shana, event):
 	shana.write(['PONG'], event.group(0))
 
 pong.name = 'pong'
-pong.rule = (r'(.*)')
 pong.event = ['PING']
 
 def echo(shana, event):
@@ -26,7 +25,6 @@ def topic(shana, event):
 	l = shana.recv(subject=["PUT",])
 
 topic.name = 'topic'
-topic.rule = (r'(.*)')
 topic.event = ['332']
 
 def change_topic(shana, event):
