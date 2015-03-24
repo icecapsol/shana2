@@ -12,20 +12,20 @@ def communicator(shana, event):
 			self.buffer = b''
 			self.bot = bot
 			self.reload_config(bot.conf)
-		
+
 		def reload_config(self, config):
 			self.config = config
 			self.host = config['host']
 			self.port = config['port']
 			self.ssl = False if 'ssl' not in config.keys() else config['ssl']
-			
+
 			if self.ssl:
 				self.send = self._ssl_send
 				self.recv = self._ssl_recv
 			else:
 				self.send = asynchat.async_chat.send
 				self.recv = asynchat.async_chat.recv
-				
+
 		def _ssl_send(self, data):
 			try:
 				result = self.write(data)
@@ -36,7 +36,7 @@ def communicator(shana, event):
 				else:
 					raise ssl.SSLError(why)
 				return 0
-		
+
 		def _ssl_recv(self, buffer_size):
 			try:
 				data = self.read(buffer_size)
@@ -54,7 +54,7 @@ def communicator(shana, event):
 				else:
 					raise
 
-		def initiate_connect(self): 
+		def initiate_connect(self):
 			self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
 			self.bot.log("Connecting to %s %s" % (self.host, self.port), "STATUS")
 			try:
@@ -63,8 +63,8 @@ def communicator(shana, event):
 			except:
 				self.bot.log("%s: %s" % sys.exc_info()[:2], "ERROR")
 				self.reconnect_wait = (self.reconnect_wait * 2) % 240
-				
-		def handle_connect(self): 
+
+		def handle_connect(self):
 			if self.ssl:
 				self.ssl_sock = ssl.wrap_socket(self.socket, do_handshake_on_connect=False)
 				self.set_socket(self.ssl_sock)
@@ -94,11 +94,11 @@ def communicator(shana, event):
 				self.bot.log(line, "ERROR")
 			self.bot.log("Send buffer: %s" % self.buffer, "ERROR")
 
-		def collect_incoming_data(self, data): 
+		def collect_incoming_data(self, data):
 			self.buffer += data
 		def found_terminator(self):
 			line = self.buffer
-			if line.decode().endswith('\r'): 
+			if line.decode().endswith('\r'):
 				line = line[:-1]
 			self.buffer = b''
 			self.bot.log("New line: %s" % line.decode(), "DEBUG")
@@ -106,7 +106,7 @@ def communicator(shana, event):
 		def run(self):
 			self.initiate_connect()
 			try: asyncore.loop()
-			except KeyboardInterrupt: 
+			except KeyboardInterrupt:
 				sys.exit(0)
 	class Speaker():
 		def __init__(self, bot, comm):
@@ -132,17 +132,18 @@ def communicator(shana, event):
 				elif letter.subject == "RELOAD":
 					self.comm.reload_config(letter.body['config'])
 					self.bot.log("Reloading Listener's configuration", "NOTICE")
-	
+
 	def die(self, sig):
 		sys.exit(0)
-		
+
 	listener = Listener(shana)
 	speaker = Speaker(shana, listener)
 	signal.signal(signal.SIGINT, die)
-	
+
 	t = threading.Thread(target=listener.run, args=())
 	t.start()
 	speaker.run()
+communicator.name = "communicator"
 communicator.startup = True
 communicator.service = True
 
@@ -151,29 +152,30 @@ def parser(shana, event):
 		irc_re = re.compile(r'([^!]*)!?([^@]*)@?(.*)')
 		line = l.body['line']
 		shana.log("new line '%s'" % line.strip(), "DEBUG")
-		
-		if line.startswith(':'): 
+
+		if line.startswith(':'):
 			source, line = line[1:].split(' ', 1)
 		else: source = None
 
-		if ' :' in line: 
+		if ' :' in line:
 			argstr, text = line.split(' :', 1)
 		else: argstr, text = line, ''
 		args = argstr.split()
-		
+
 		match = irc_re.match(source or '')
 		nick, user, host = match.groups()
 
-		if len(args) > 1: 
+		if len(args) > 1:
 			target = args[1]
 		else: target = ""
 		sender = {shana.conf['nick']: nick, None: ""}.get(target, target)
 		args = tuple([text] + args)
-		
+
 		shana.send("module.bot.generator", "NEW IRC DATA", {'nick': {None: ""}.get(nick, nick), "user": user, "host": host, "sender": sender, "args": args})
-	
+
 	shana.register(new_line, "NEW LINE")
 	shana.loop()
+parser.name = "parser"
 parser.startup = True
 parser.service = True
 
@@ -199,15 +201,16 @@ class Event():
 		else:
 			self.username = 'nobody'
 		self.ugroups = config['passwd'].get(self.username, ['nobody'])
-		
+
 def generator(shana, event):
 	def generate(l):
 		args = l.body['args']
 		event = Event(args[0], l.body, args[0], args[1], args[2:], shana.conf)
 		shana.send("self.launcher", "NEW EVENT", {'event': event})
 	shana.register(generate, "NEW IRC DATA")
-	
+
 	shana.loop()
+generator.name = "generator"
 generator.startup = True
 generator.service = True
 
@@ -271,10 +274,10 @@ class Output:
 		self.m_mask = module_mask
 		self.colors = {"BLACK": ("\x1b[30m", "\x1b[0m"), "DARK RED": ("\x1b[31m", "\x1b[0m"),
 					    "DARK GREEN": ("\x1b[32m", "\x1b[0m"), "DARK YELLOW": ("\x1b[33m", "\x1b[0m"),
-					    "DARK BLUE": ("\x1b[34m", "\x1b[0m"), "DARK MAGENTA": ("\x1b[35m", "\x1b[0m"), 
+					    "DARK BLUE": ("\x1b[34m", "\x1b[0m"), "DARK MAGENTA": ("\x1b[35m", "\x1b[0m"),
 					    "DARK CYAN": ("\x1b[36m", "\x1b[0m"), "LIGHT GREY": ("\x1b[37m", "\x1b[0m"),
 					    "DARK GREY": ("\x1b[30m", "\x1b[0m"), "RED": ("\x1b[31;1m", "\x1b[0m"),
-					    "GREEN": ("\x1b[32;1m", "\x1b[0m"), "YELLOW": ("\x1b[33;1m", "\x1b[0m"), 
+					    "GREEN": ("\x1b[32;1m", "\x1b[0m"), "YELLOW": ("\x1b[33;1m", "\x1b[0m"),
 					    "BLUE": ("\x1b[34;1m", "\x1b[0m"), "MAGENTA": ("\x1b[35;1m", "\x1b[0m"),
 					    "CYAN": ("\x1b[36;1m", "\x1b[0m"), "WHITE": ("\x1b[37;1m", "\x1b[0m")}
 		self.level_profiles = {"FATAL": "MAGENTA", "CRITICAL": "RED", "ERROR": "DARK RED", "WARNING": "YELLOW",
@@ -289,10 +292,10 @@ class Output:
 			self.output = sys.stderr
 		elif output.startswith("file:"):
 			self.output = open(output.split(":", 1)[1], "a")
-	
+
 	def colorize(self, text, level):
 		return "%s%s%s" % (self.colors[self.level_profiles[level]][0], text, self.colors[self.level_profiles[level]][1])
-	
+
 	def filter_line(self, message):
 		if message['level'] not in self.levels: return
 		if message['module'] in self.m_mask: return
@@ -302,7 +305,7 @@ class Output:
 def logger_manager(shana, event):
 	command, s, name = event.group(2).partition(" ")
 	if name: name, s, args = name.partition(" ")
-	
+
 	if command == "new":
 		shana.send("module.bot.logger", "NEW", {'name': name, 'output': args})
 		l = shana.recv()
@@ -371,7 +374,7 @@ def logger(shana, event):
 			message = l.body
 			lines.append(message)
 			if len(lines) > 5000: lines.pop(0)
-			
+
 			for out in outputs:
 				out.filter_line(message)
 
@@ -381,11 +384,12 @@ logger.wake_on_letter = True
 
 def version(shana, event):
 	shana.say("Shana2 Version %s" % shana.conf.get('version', '???'))
+version.name = "version"
 version.commands = ['version']
 
 def reload_module(shana, event):
 	print(event.sender)
 	shana.send("module.bot.launcher", "RELOAD MODULE", {'names': event.group(2).split(', '), 'sender': event.sender, 'nick': event.nick})
-	
+
 reload_module.name = 'reload_module'
 reload_module.commands = ['reload']

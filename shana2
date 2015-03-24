@@ -335,9 +335,11 @@ class Launcher():
 			letter = self.connection.recv()
 			if letter.subject == "NEW EVENT":
 				event = letter.body['event']
+				print(event.event, event.bytes)
 				for m in self.modules:
 					for func in m.functions:
 						if not [t.trigger(event) for t in func.triggers].count(True): continue
+						print(func.name)
 						if func.service:
 							self.send("module.%s.%s" % (m.name, func.name), "NEW EVENT", {'event': event, 'modname': m.name, 'funcname': func.name, 'service': True})
 						else:
@@ -573,11 +575,11 @@ class Module():
 			self.func = func
 			self.rule = getattr(self.func, 'rule', [])
 			self.commands = getattr(self.func, 'commands', [])
-			self.event = getattr(self.func, 'event', [])
+			self.event = getattr(self.func, 'event', ['PRIVMSG'])
 			self.startup = getattr(self.func, 'startup', False)
 			self.service = getattr(self.func, 'service', False)
 			self.triggers = []
-			if self.commands or self.rule or self.event:
+			if self.commands or self.rule or getattr(self.func, 'event', None):
 				self.triggers.append(Trigger({
 					'name': 'old style',
 					'rule': self.rule,
@@ -638,7 +640,8 @@ class Module():
 		self.functions = []
 		for name, func in vars(module).items():
 			if not str(type(func)) == "<class 'function'>": continue
-			self.functions.append(Module.Function(getattr(func, 'name', name), func, config))
+			if hasattr(func, "name"):
+				self.functions.append(Module.Function(func.name, func, config))
 
 	def start(self, event, func):
 		# daemonize
