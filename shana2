@@ -335,11 +335,9 @@ class Launcher():
 			letter = self.connection.recv()
 			if letter.subject == "NEW EVENT":
 				event = letter.body['event']
-				print(event.event, event.bytes)
 				for m in self.modules:
 					for func in m.functions:
 						if not [t.trigger(event) for t in func.triggers].count(True): continue
-						print(func.name)
 						if func.service:
 							self.send("module.%s.%s" % (m.name, func.name), "NEW EVENT", {'event': event, 'modname': m.name, 'funcname': func.name, 'service': True})
 						else:
@@ -596,7 +594,7 @@ class Module():
 			self.input = event
 			self.pid = pid
 			self.conf = conf
-			self.debug_log = open("logs/%s.log" % '.'.join([self.name, str(pid)]), "w")
+			self.debug_log = None
 		def write(self, args, text=None):
 			def safe(data):
 				data = data.replace('\n', '')
@@ -619,9 +617,12 @@ class Module():
 			self.connection.send(l)
 		def log(self, line, level):
 			self.send("module.bot.logger", "LOG", {'module': self.name, 'time': int(time.time()), 'text': line, 'level': level})
-		def debug(self, text):
-			self.debug_log.write(text+'\n')
-			self.debug_log.flush()
+		def debug(self, text=None):
+			if not self.debug_log:
+				self.debug_log = open("logs/%s.log" % '.'.join([self.name, str(self.pid)]), "w")
+			if text:
+				self.debug_log.write(text+'\n')
+				self.debug_log.flush()
 		def recv(self, subject=[], sender=[], block=True):
 			return self.connection.recv(subject, sender, block)
 		def register(self, func, subject=None, sender=None):
@@ -696,12 +697,8 @@ class Module():
 				bot.debug(report[0] + ' (' + report[1] + ')')
 				bot.say(report[0] + ' (' + report[1] + ')')
 			except: pass # services have no event!
-		try:
-			bot.debug(str(len(bot.connection.letters)))
-			time.sleep(0.1)
-			bot.connection.close()
-		except: pass
-		bot.debug_log.close()
+		if bot.debug_log:
+			bot.debug_log.close()
 
 conf_name = "shana2.conf"
 
