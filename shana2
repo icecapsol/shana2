@@ -587,7 +587,15 @@ class Module():
 					'event': self.event,
 					'group': getattr(self.func, 'group', ('.*',)) }, config))
 			for trigger in getattr(self.func, 'triggers', []):
-				self.triggers.append(Trigger(trigger, config))
+				t = Trigger(trigger, config)
+				if not self.get_trigger(t.name):
+					self.triggers.append(t)
+				# report an error if the name already exists somehow
+		def get_trigger(self, name):
+			for t in self.triggers:
+				if t.name == name:
+					return t
+			return None
 
 	class Bot():
 		def __init__(self, event, name, pid, conf):
