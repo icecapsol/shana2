@@ -363,6 +363,36 @@ class Launcher():
 							self.send("module.bot.communicator", "NEW IRC OUTPUT", {'message': "PRIVMSG %s :%s: Error loading module %s: %s\r\n" % (letter.body['sender'], letter.body['nick'], name+".py", e)})
 					else:
 						self.send("module.bot.communicator", "NEW IRC OUTPUT", {'message': "PRIVMSG %s :%s: Error loading module %s: file doesn't exist\r\n" % (letter.body['sender'], letter.body['nick'], name+".py")})
+
+			elif letter.subject == "TRIGGER":
+				action = letter.body.get("action", "")
+				mod, func = self.get_module_function(letter.body.get("module", ""))
+				reply = ""
+				if action == "register":
+					new_t = Trigger(letter.body.get("definition", {}), mod.config)
+					if not func.get_trigger(new_t.name):
+						func.triggers.append(new_t)
+						reply = "success"
+					else:
+						reply = "error"
+				elif action == "edit":
+					t = func.get_trigger(letter.body.get("name", ""))
+					if not t:
+						reply = "error"
+					else:
+						t.define(self.merge(letter.body.get("definition", {}), t.definition), mod.config)
+						reply = "success"
+				elif action == "remove":
+					t = func.get_trigger(letter.body.get("name", ""))
+					if t:
+						func.triggers.remove(t)
+						reply = "success"
+					else:
+						reply = "error"
+				self.send(letter.sender, "TRIGGER", {"action": action,
+											  "module name": letter.body.get("module", ""),
+											  "reply": reply})
+
 			elif letter.subject == "LIST MODULES":
 				mods = {}
 				for mod in self.modules:
@@ -472,16 +502,18 @@ class Postoffice():
 
 class Trigger():
 	def __init__(self, definition, config):
+		self.triggered = 0
+		self.last = 0
+		self.define(definition, config)
+
+	def define(self, definition, config):
+		self.definition = definition
+		self.string = repr(definition)
+
 		def sub(pattern, self=self):
 			# These replacements have significant order
 			pattern = pattern.replace('$nickname', config['name'])
 			return pattern.replace('$nick', r'%s[,:] +' % config['name'])
-
-		self.definition = definition
-		self.string = repr(definition)
-
-		self.triggered = 0
-		self.last = 0
 
 		# A definition is a dictionary of filters and parameters
 		# All keys are optional
@@ -566,6 +598,9 @@ class Trigger():
 		# it has been triggered
 		self.triggered += 1
 		self.last = time.time()
+		# countdown to expiration
+		if self.expire > 0:
+			self.expire -= 1
 		return True
 
 class Module():
