@@ -36,7 +36,7 @@ def hollywood_jargon(shana, event):
         'types': ["verb", "adjective", "abbreviation", "noun", "verb", "abbreviation", "noun"],
         'structure': "I'll {0} the {1} {2} {3}, that should {4} the {5} {6}!"
     }]
-    
+
 	construct = jargon['constructs'][random.randint(0, len(jargon['constructs'])-1)]
 	sentence = construct['structure']
 	for t, index in zip(construct['types'], range(len(construct['types']))):
@@ -46,4 +46,5 @@ def hollywood_jargon(shana, event):
             sentence = sentence.replace("{" + str(index) + "}", word)
 	sentence = '"' + sentence[0].upper() + sentence[1:] + '"'
 	shana.say(sentence)
+hollywood_jargon.name = "hollywood_jargon"
 hollywood_jargon.commands = ['jargon']

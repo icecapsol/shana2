@@ -13,7 +13,8 @@ def rps(shana, event):
 	if throw in throws.keys():
 		counter = random.randint(1, 3)
 		shana.say('You throw %s, I throw %s. You %s!' % (throws[throw], values[counter], results[throws[throw]][values[counter]]))
-	
+
+rps.name = "rps"
 rps.commands = ['rps', 'janken', 'roshambo']
 
 def flip(shana, event):
@@ -43,6 +44,7 @@ def flip(shana, event):
 		shana.say("Flip %d coins: %s" % (coins, ', '.join([faces[f] for f in flips])))
 	else:
 		shana.say("Flip %d coins: %d heads, %d tails" % (coins, len([f for f in flips if f == 0]), len([f for f in flips if f == 1])))
+flip.name = "flip"
 flip.commands = ['flip']
 
 
@@ -50,7 +52,7 @@ def roll(shana, event):
 	roll_text = re.search('([0-9]+)d([0-9]+)([-+][0-9]+)?', event.group(2))
 	if not roll_text: return
 	roll = list(roll_text.groups())
-	
+
 	dice = int(roll.pop(0))
 	sides = int(roll.pop(0))
 
@@ -64,19 +66,19 @@ def roll(shana, event):
 		modifier = int(roll.pop(0))
 	else:
 		modifier = 0
-	
+
 	outcome = []
 	for d in range(dice):
 		outcome.append(random.randint(1, sides))
 	subtotal = sum(outcome)
 	total = subtotal + modifier
-	
+
 	if dice == 1:
 		shana.say("Roll %s: %d %s" %
 			(event.group(2).strip(), subtotal, {True: '', False: '-> %d' % total}[subtotal == total]) )
 	else:
 		shana.say("Roll %s: [%s%s] = %d %s" %
-			(event.group(2).strip(), ', '.join(map(str, 
+			(event.group(2).strip(), ', '.join(map(str,
 outcome[:30])), "" if len(outcome) <= 30 else "...", subtotal, '' if subtotal == total else '-> %d' % total) )
 roll.name = 'roll'
 roll.commands = ['roll']
