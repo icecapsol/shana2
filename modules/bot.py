@@ -258,7 +258,7 @@ def store(shana, event):
 				if l.sender != owner:
 					shana.send(l.sender, "RELEASE", {'name': rname, 'value': record.get('value', None), 'error': "locked"})
 					continue
-			record['value'] = l.body['value']
+			record['value'] = l.body.get('value', record['value'])
 			record['lock-owner'] = ''
 			record['lock-expire'] = 0
 			records[rname] = record

@@ -348,7 +348,7 @@ class Launcher():
 				mod, func = self.get_module_function(letter.body['letter'].to_f[:3])
 				if not func:
 					self.send("self.post office", "WAKE FAIL", {'letter': letter.body['letter']})
-					self.log("Bad WAKE event %s" % letter.body['letter'].to, "ERROR")
+					self.log("Bad WAKE event - To: %s From: %s" % (letter.body['letter'].to, letter.body['letter'].sender), "ERROR")
 					continue
 
 				self.launch_module(mod, func)
