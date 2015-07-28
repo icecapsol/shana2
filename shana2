@@ -12,7 +12,7 @@ http://inamidst.com/phenny/
 
 import sys, os, re, time, imp, datetime, traceback, getopt, signal, locale, socket, select
 import yaml
-from multiprocessing import Process, Pipe, Queue
+from multiprocessing import Process
 import pickle, struct
 
 class Letter:
@@ -158,6 +158,9 @@ class Connection():
 		if letter:
 			self.letters.remove(letter)
 			return letter
+
+		if not self.connected:
+			return None
 
 		while True:
 			try:
@@ -337,11 +340,11 @@ class Launcher():
 			letter = self.connection.recv()
 			if letter.subject == "NEW EVENT":
 				event = letter.body['event']
-				print(event.event, event.bytes)
+
 				for m in self.modules:
 					for func in m.functions:
 						if not [t.trigger(event) for t in func.triggers].count(True): continue
-						print(func.name)
+
 						if func.service:
 							self.send("module.%s.%s" % (m.name, func.name), "NEW EVENT", {'event': event, 'modname': m.name, 'funcname': func.name, 'service': True})
 						else:
@@ -423,6 +426,9 @@ class Postoffice():
 		self.boxes = []
 		self.holds = []
 		self.closed = []
+		self.history = []
+		self.max_history = 10000
+		self.dump_history = False
 		signal.signal(signal.SIGINT, self.die)
 
 	def reload_config(self, config):
@@ -436,10 +442,16 @@ class Postoffice():
 		match = re.compile(re.escape(name)+".*")
 		return [box for box in boxes if match.match(box.name)]
 
+	def log(self, event_str):
+		self.history.append(event_str)
+		if len(self.history) > self.max_history:
+			self.history.pop(0)
+
 	def deliver(self, letter):
 		boxes = self.best_match(letter.to)
 		holds = self.best_match(letter.to, self.holds)
 
+		self.log("F: %s  T: %s  S: %s" % (letter.sender, letter.to, letter.subject))
 		if boxes:
 			for box in boxes:
 				try: box.send(letter)
@@ -467,40 +479,52 @@ class Postoffice():
 
 	def run(self):
 		self.connection = Connection("self.post office", self.config["post office address"], True, self.config["post office family"])
-		while True:
-			r, w, e = select.select([self.connection,] + self.boxes, [], [])
-			for c in r:
-				if c == self.connection:
-					new_box = c.accept()
+		try:
+			while True:
+				r, w, e = select.select([self.connection,] + self.boxes, [], [])
+				for c in r:
+					if c == self.connection:
+						new_box = c.accept()
+						self.log("New box: %s" % new_box.name)
 
-					holds = self.best_match(new_box.name, self.holds)
-					for hold in holds:
-						try:
-							for letter in hold.letters:
-								new_box.send(letter)
-						except BrokenPipeError:
-							new_box.close(False)
-							self.closed.append(new_box)
-						try: self.holds.remove(hold)
-						except: pass
-					if new_box.connected:
-						self.boxes.append(new_box)
-				else:
-					letter = c.recv()
-					if not letter:
-						self.boxes.remove(c)
-						continue
+						holds = self.best_match(new_box.name, self.holds)
+						for hold in holds:
+							try:
+								for letter in hold.letters:
+									new_box.send(letter)
+							except BrokenPipeError:
+								new_box.close(False)
+								self.log("New box closed: %s" % new_box.name)
+								self.closed.append(new_box)
+							try: self.holds.remove(hold)
+							except: pass
+						if new_box.connected:
+							self.boxes.append(new_box)
+					else:
+						letter = c.recv()
+						if not letter:
+							if c in self.boxes:
+								self.boxes.remove(c)
+								self.log("Box removed: %s" % c.name)
+							continue
 
-					self.deliver(letter)
+						self.deliver(letter)
 
-			for box in self.closed:
-				for letter in box.letters:
-					self.deliver(letter)
-				self.closed.remove(box)
+				for box in self.closed:
+					for letter in box.letters:
+						self.deliver(letter)
+					self.closed.remove(box)
 
-			for hold in self.holds[:]:
-				if hold.expire():
-					self.holds.remove(hold)
+				for hold in self.holds[:]:
+					if hold.expire():
+						self.holds.remove(hold)
+		except:
+			if self.dump_history:
+				dump = open("history", "w")
+				for line in self.history:
+					dump.write(line+'\n')
+				dump.close()
+			print(traceback.format_exc())
 
 class Trigger():
 	def __init__(self, definition, config):
@@ -636,7 +660,7 @@ class Module():
 
 	class Bot():
 		def __init__(self, event, name, pid, conf):
-			self.name = '.'.join(name)
+			self.name = "%s.%d" % ('.'.join(name), pid)
 			self.connection = Connection(self.name, conf['post office address'], family=conf['post office family'], protocol=conf['post office protocol'])
 			self.input = event
 			self.pid = pid
@@ -666,7 +690,7 @@ class Module():
 			self.send("module.bot.logger", "LOG", {'module': self.name, 'time': int(time.time()), 'text': line, 'level': level})
 		def debug(self, text=None):
 			if not self.debug_log:
-				self.debug_log = open("logs/%s.log" % '.'.join([self.name, str(self.pid)]), "w")
+				self.debug_log = open("logs/%s.log" % self.name, "w")
 			if text:
 				self.debug_log.write(text+'\n')
 				self.debug_log.flush()
