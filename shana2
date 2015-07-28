@@ -62,6 +62,7 @@ class Connection():
 			self.protocol = socket.SOCK_DGRAM
 		self.sock = sock
 		self.letters = []
+		self.errors = []
 		self.handlers = {'subject': {}, 'sender': {}}
 		if sock:
 			pass
@@ -159,16 +160,17 @@ class Connection():
 			return letter
 
 		while True:
-			old_to = self.sock.gettimeout()
-			rlen_bytes = None
 			try:
+				rlen_bytes = None
+				old_to = self.sock.gettimeout()
 				if not block: self.sock.settimeout(0.0)
 				rlen_bytes = self.sock.recv(2)
 				if not block: self.sock.settimeout(old_to)
 			except socket.timeout:
 				self.sock.settimeout(old_to)
 				break
-			except:
+			except Exception as e:
+				self.errors.append(e)
 				self.close()
 				return
 			if not rlen_bytes:
@@ -743,6 +745,8 @@ class Module():
 				bot.debug(report[0] + ' (' + report[1] + ')')
 				bot.say(report[0] + ' (' + report[1] + ')')
 			except: pass # services have no event!
+		for exception in bot.connection.errors:
+			bot.debug(repr(error))
 		if bot.debug_log:
 			bot.debug_log.close()
 
